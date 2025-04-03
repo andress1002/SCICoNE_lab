@@ -26,7 +26,7 @@ def main():
 
     # Create SCICoNE object
     sci = scicone.SCICoNE(install_path, temporary_outpath, verbose=False)
-    scrna_path = "/home/andress/pylabs/SCICoNE_lab/rna_imp/clonealign-processed-data/SA501/10X/20171026_SA501X2XB00096/outs/filtered_gene_bc_matrices/hg19/"
+    scrna_path = "/cluster/work/bewi/members/andress/SCICoNE_lab/rna_imp/clonealign-processed-data/SA501/10X/20171026_SA501X2XB00096/outs/filtered_gene_bc_matrices/hg19/"
 
     mat = io.mmread(f'{scrna_path}/matrix.mtx').toarray()
     barcodes = pd.read_csv(f'{scrna_path}/barcodes.tsv', sep='\t', header=None)
