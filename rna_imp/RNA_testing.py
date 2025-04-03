@@ -18,7 +18,7 @@ import json
 def main():
 
     # Set up SCICoNE
-    install_path = '/cluster/work/bewi/members/andress/SCICoNE/build/'
+    install_path = '/cluster/work/bewi/members/andress/SCICoNE_lab/build/'
     temporary_outpath = './'
 
     seed = 42 
@@ -73,19 +73,10 @@ def main():
     sc.tl.leiden(adata)
     sc.tl.umap(adata)
     
+    #read gr_annotations local file
+    
+    gr_annotations = pd.read_csv('/cluster/work/bewi/members/andress/SCICoNE_lab/rna_imp/gr_annotations.csv')
 
-    #Get gene anotations
-
-    annot = sc.queries.biomart_annotations(
-        "hsapiens",
-        ["ensembl_gene_id", "start_position", "end_position", "chromosome_name"],
-    ).set_index("ensembl_gene_id")
-
-    annot = annot.reset_index()
-    annot = annot.rename(columns={'start_position':'Start', 'end_position': 'End', 'chromosome_name': 'Chromosome'})
-
-    gr_annotations = pyranges.from_dict(annot.to_dict())
-        # Get gene coordinates
     df_annotations = gr_annotations.df.set_index('ensembl_gene_id')
 
     df_exp_annotations = df_annotations.loc[df_annotations.index.intersection(adata.var['ensembl_gene_id'])]\
