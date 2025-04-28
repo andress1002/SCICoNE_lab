@@ -1,3 +1,7 @@
+# Import matplotlib and set non-interactive backend first
+import matplotlib
+matplotlib.use('Agg')  # Must be before importing pyplot
+
 #import libs
 import scicone
 import numpy as np
@@ -20,73 +24,86 @@ def main():
     # Set up SCICoNE
     install_path = '/cluster/work/bewi/members/andress/SCICoNE_lab/build/'
     temporary_outpath = './'
+    temporary_p = '/cluster/work/bewi/members/andress/SCICoNE_lab/rna_imp/output2'
+    adatas_path = '/cluster/work/bewi/members/andress/SCICoNE_lab/rna_imp/adatas'
+    # Make sure the output directory exists
+    os.makedirs(temporary_outpath, exist_ok=True)
+    
+    # Add debug message
+    print(f"Output will be saved to: {temporary_outpath}")
 
     seed = 42 
     np.random.seed(seed)
+    
+    # Rest of your code remains the same...
 
     # Create SCICoNE object
     sci = scicone.SCICoNE(install_path, temporary_outpath, verbose=False)
-    scrna_path = "/cluster/work/bewi/members/andress/SCICoNE_lab/rna_imp/clonealign-processed-data/SA501/10X/20171026_SA501X2XB00096/outs/filtered_gene_bc_matrices/hg19/"
-    
+
     gr_annotations = pd.read_csv('/cluster/work/bewi/members/andress/SCICoNE_lab/rna_imp/gr_annotations.csv')
 
-    df_annotations = gr_annotations.set_index('ensembl_gene_id')
 
-    df_exp_annotations = df_annotations.loc[df_annotations.index.intersection(adata.var['ensembl_gene_id'])]\
-                            .reset_index().rename(columns={'index':'ensembl_gene_id'})
+    # Load the JSON file as a dictionary
+    json_file_path = '/cluster/work/bewi/members/andress/SCICoNE_lab/rna_imp/chromosome_stops.json'
+    with open(json_file_path, 'r') as file: 
+        chromosome_stops = json.load(file)
 
-    adata.var_names = adata.var['ensembl_gene_id'].values
+# Use chromosome_stops directly without further processing
+    chromosome_stops_list = sorted(list(chromosome_stops.values()))
 
-    adata = adata[:,df_exp_annotations['ensembl_gene_id']]
-    
+    import matplotlib.pyplot as plt
+    file_list = ['adata_clusters_median', 'adata_clusters_mean', 'adata_clusters_sum', 'clusters_mean_transformed',
+                'clusters_sum_transformed', 'clusters_median_transformed']
+    # Initialize a dictionary to store results
+    breakpoints_data = {}
 
-    df_exp_annotations_sorted = df_exp_annotations.sort_values(by=['Chromosome', 'End'])
+    for cluster_file in file_list:
+        breakpoints_data[cluster_file] = []
+        for window_size in range(3, 300, 1):
+            try:
+                adata = anndata.read_h5ad(f'{adatas_path}/{cluster_file}.h5ad')
+                data = adata.X
+                # Run SCICoNE analysis
+                matrix_plot_filename = f"{temporary_p}/matrix_plot_{cluster_file}_{window_size}.png"
+                bps = sci.detect_breakpoints(data=data, window_size=window_size, threshold=3, input_breakpoints=chromosome_stops_list)
+                breakpoints_data[cluster_file].append((window_size, len(bps['segmented_regions'])))
+                scicone.plotting.plot_matrix(data, bps = bps['segmented_regions'],
+                                                    chr_stops_dict=chromosome_stops,
+                                                    cbar_title='Normalized\n  counts', vmax=2, cluster=False)
+                if window_size in [3, 5, 10, 20, 50, 100, 200, 300]:
+                    plt.title(f"Matrix Plot for {cluster_file} with Window Size {window_size}")    
+                    plt.savefig(matrix_plot_filename, dpi=300, bbox_inches='tight')
+                    plt.close()
 
+                    #Learn and save the tree plot
+                    tree_plot_filename = f"{temporary_p}/tree_plot_{cluster_file}_{window_size}.png"
+                    #Render the tree plot using graphviz's render method
+                    inferred_tree = sci.learn_tree(data, bps["segmented_region_sizes"], n_reps = 4, seed = seed, max_tries = 1)
+                    inferred_tree.plot_tree(gene_labels=True, node_labels=True, node_sizes=True, event_fontsize=8, nodesize_fontsize=10)
 
-#Read the cluster files
+            
+                    plt.savefig(tree_plot_filename, dpi=300, bbox_inches='tight')
+                    plt.close()  # Close the figure to free memory
+                    print(f"Tree plot saved to {tree_plot_filename}")
 
-    mean_clusters = anndata.read_h5ad(f'{temporary_outpath}/mean_clusters_sorted.h5ad')
-    median_clusters = anndata.read_h5ad(f'{temporary_outpath}/median_clusters_sorted.h5ad')
-    sum_clusters = anndata.read_h5ad(f'{temporary_outpath}/sum_clusters_sorted.h5ad')
+            except Exception as e:
+                print(f"Error processing {cluster_file} with window size {window_size}: {e}")
+                continue
 
-
-    chr_var_names = dict()
-    for chromosome in df_exp_annotations_sorted['Chromosome'].unique():
-        chr_var_names[chromosome] = df_exp_annotations_sorted.query(f' Chromosome=="{chromosome}" ')\
-                                        .sort_values('Start')['ensembl_gene_id'].values
-
-    with open(f'{temporary_outpath}/chromosome_stops.json', 'r') as f:
-        chromosome_stops = json.load(f)
-
-    for cluster_file in [mean_clusters, median_clusters, sum_clusters]:
-        try:
-            cluster_file.var['Chromosome'] = cluster_file.var['Chromosome'].astype(str)
-            sorted_var = cluster_file.var.sort_values(by=['Chromosome', 'End'])
-
-            # Reorder adata.X columns based on the sorted var index
-            cluster_file = cluster_file[:, sorted_var.index]
-            sci.detect_breakpoints(cluster_file, window_size=100, threshold=3, input_breakpoints = sorted(list(chromosome_stops.values())))
-
-            scicone.plotting.plot_matrix(cluster_file, bps=sci.bps['segmented_regions'],
-            chr_stops_dict=chromosome_stops,
-            cbar_title='Normalized\n  counts', vmax=2, cluster=False)
-
-            sci.learn_tree(ful=False)
-            fig = sci.plot_tree()
-            fig.savefig('scicone_tree.png', dpi=300, bbox_inches='tight')
+    # Plot the results
+    for cluster_file, data_points in breakpoints_data.items():
+        if data_points:
+            window_sizes, breakpoints_counts = zip(*data_points)
+            plt.figure(figsize=(8, 6))
+            plt.plot(window_sizes, breakpoints_counts, marker='o', label=cluster_file)
+            plt.title(f'Breakpoints Detected vs Window Size for {cluster_file}')
+            plt.xlabel('Window Size')
+            plt.ylabel('Number of Breakpoints Detected')
+            plt.legend()
+            plt.grid(True)
             plt.show()
-        except Exception as e:
-            print(f"An error occurred while processing the cluster file: {e}")
-            continue
-
-
-    #Apply SCICoNE and passing chromosome as known regions
-
-#     scicone.plotting.plot_matrix(gene_by_cells, bps=sci.bps['segmented_regions'],
-#                                 chr_stops_dict=sci.data['filtered_chromosome_stops'],
-#              
-#                    cbar_title='Normalized\n  counts', vmax=2, cluster=False)
-
+            #save plots
+            plt.savefig(f"{temporary_p}/breakpoints_plot_{cluster_file}.png", dpi=300, bbox_inches='tight')
 
 if __name__ == '__main__':
     main()
