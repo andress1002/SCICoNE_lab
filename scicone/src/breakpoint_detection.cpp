@@ -163,13 +163,16 @@ int main( int argc, char* argv[]) {
       double max = MathOp::vec_max(s_p);
       std::cout << "Max sp: " << max << std::endl;
       for (auto const &b: input_breakpoints) {
-        for (int i = 1; i < window_size; ++i) {
-            if (b-i >= 0 && b-i < s_p.size())
-                s_p[b-i] = 1e-8;
-            if (b+i >= 0 && b+i < s_p.size())
-                s_p[b+i] = 1e-8;
+        if (b != 0 && b != n_bins) {
+          s_p[b] = max * 100;
+    	  for (int i = 1; i < window_size; ++i) {
+    	  	  std::cout << b-i << ", " << b+i  << std::endl;
+    		  s_p[b-i] = 1e-8;//s_p[b-window_size];
+    		  s_p[b+i] = 1e-8;//s_p[b+window_size];
+    	  }
+          std::cout << "Adding " << b << ": " << s_p[b] << std::endl;
         }
-      }
+       }
       std::cout << "Done." << std::endl;
     }
 
@@ -228,8 +231,15 @@ int main( int argc, char* argv[]) {
 
                   // replace the nearby bins by nan
                   int start_idx, stop_idx;
-                  start_idx = std::max(0, max_idx - smaller_window_size);
-                  stop_idx = std::min(static_cast<int>(sp_cropped.size()), max_idx + smaller_window_size + 1);
+                  start_idx = max_idx - smaller_window_size;
+                  stop_idx = max_idx + smaller_window_size + 1; // +1 because if max_id = 100 and window_size = 4, then 101,102,103,104 must be NaN
+
+                  // check the boundries
+                  if (start_idx < 0)
+                      start_idx = 0;
+                  if (stop_idx > sp_cropped.size())
+                      stop_idx = sp_cropped.size();
+                  // set the nearby bins to nan
                   for (int i = start_idx; i < stop_idx; ++i) {
                       sp_cropped_copy[i] = std::nan("");
                   }
