@@ -41,14 +41,16 @@ public:
 
     MathOp() = delete;
     virtual ~MathOp() = delete;
-    static double breakpoint_log_likelihood(std::vector<double> v, double lambda, double nu);
+    static double breakpoint_log_likelihood(std::vector<double> v, double lambda, double nu, bool use_zinb = false);
     static long double log_add(long double val1, long double val2);
     static double log_sum(const map<int, double> &map); // map version
     static double log_sum(const vector<double> &vec); // vector version
     static double log_replace_sum(const double &sum, const vector<double> &to_subtract, const vector<double> &to_add,
                                      const map<int, double> &unchanged_vals);
     static vector<double> combine_scores(vector<double> aic_vec);
-    static vector<vector<double>> likelihood_ratio(vector<vector<double>> &mat, int window_size, vector<int> &known_breakpoints);
+    static vector<vector<double>> likelihood_ratio(vector<vector<double>> &mat, int window_size, 
+        vector<int> &known_breakpoints, bool use_zinb = false, 
+        std::string transition_model = "Average");
     static double breakpoint_log_prior(int k, int m, double mu);
     static double compute_linear_regression_slope(const vector<double>& x, const vector<double>& y);
     static double log_n_choose_k(unsigned long n, unsigned long k);
@@ -83,6 +85,8 @@ public:
     static vector<double> compute_linear_regression_parameters(vector<double> &z, int window_size, double nu);
     static double huber_loss(const std::vector<double> &x, std::vector<double> &grad, void *my_func_data);
     static double huber_mean(vector<double> &z, double delta);
+    static double sigmoid_transition(int pos, int breakpoint, double lambda_l, double lambda_r, double smoothness = 1.5);
+    static vector<double> gaussian_weights(int length, int breakpoint, double sigma = 4.0);
 };
 
 

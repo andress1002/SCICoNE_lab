@@ -205,7 +205,6 @@ int SignalProcessing::evaluate_peak(vector<double> signal, vector<double> sp_cro
         std::ofstream bp_vals_file("./" + f_name_posfix + "_all_bps_comparison.csv", std::ios_base::app);
         bp_vals_file << max_idx + window_size << ',' << max_val << ',' << range << std::endl; // 10 for window size
     }
-
     if (max_val > threshold)
         return max_idx;
     else
@@ -271,14 +270,17 @@ int SignalProcessing::find_highest_peak(vector<T> &signal, int lb, int ub) {
     return max_idx + lb;
 }
 
-vector<double>
-SignalProcessing::breakpoint_detection(vector<vector<double>> &mat, int window_size, int k_star, vector<int> &known_breakpoints, bool compute_lr, bool lr_only) {
-  vector<vector<double>> lr_vec;
-  return SignalProcessing::breakpoint_detection(mat, window_size, k_star, known_breakpoints, lr_vec, compute_lr, lr_only);
+vector<double> SignalProcessing::breakpoint_detection(vector<vector<double>> &mat, int window_size, 
+    int k_star, vector<int> &known_breakpoints, bool compute_lr, bool lr_only, 
+    bool use_zinb, std::string transition_model) {
+    
+    vector<vector<double>> lr_vec;
+    return breakpoint_detection(mat, window_size, k_star, known_breakpoints, 
+                               lr_vec, compute_lr, lr_only, use_zinb, transition_model);
 }
 
 vector<double>
-SignalProcessing::breakpoint_detection(vector<vector<double>> &mat, int window_size, int k_star, vector<int> &known_breakpoints, vector<vector<double>> &lr_vec, bool compute_lr, bool lr_only) {
+SignalProcessing::breakpoint_detection(vector<vector<double>> &mat, int window_size, int k_star, vector<int> &known_breakpoints, vector<vector<double>> &lr_vec, bool compute_lr, bool lr_only, bool use_zinb, std::string transition_model) {
     /*
      * Performs the breakpoint detection
      * window_size: there cannot be multiple breakpoints within a window_size
@@ -291,10 +293,12 @@ SignalProcessing::breakpoint_detection(vector<vector<double>> &mat, int window_s
     size_t n_cells = mat.size();
 
     // compute the LR scores
-    if (compute_lr)
-      lr_vec = MathOp::likelihood_ratio(mat, window_size, known_breakpoints);
-    else
-      std::cout << "Skipping LR computation" << std::endl;
+    if (compute_lr) {
+        lr_vec = MathOp::likelihood_ratio(mat, window_size, known_breakpoints, use_zinb, transition_model);
+    }
+    else {
+        std::cout << "Skipping LR computation" << std::endl;
+    }
 
     if (verbosity > 0)
     {

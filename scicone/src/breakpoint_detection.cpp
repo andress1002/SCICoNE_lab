@@ -40,6 +40,8 @@ int main( int argc, char* argv[]) {
     bool evaluate_peaks = true;
     string input_breakpoints_file;
     bool add_input_breakpoints = false;
+    bool use_zinb = false;
+    std::string transition_model = "Average";
 
     cxxopts::Options options("Breakpoint detection executable", "detects the breakpoints in the genome across all cells.");
     options.add_options()
@@ -59,6 +61,9 @@ int main( int argc, char* argv[]) {
             ("compute_sp","Boolean indicator of wether the per bin breakpoint evidence should be computed (true) or if a file is passed (false)",cxxopts::value<bool>(compute_sp)->default_value(to_string(compute_sp)))
             ("evaluate_peaks","Boolean indicator of wether to evaluate peaks and call breakpoints.",cxxopts::value<bool>(evaluate_peaks)->default_value(to_string(evaluate_peaks)))
             ("input_breakpoints_file","Path to file indicating bins which correspond to known breakpoints that must be included.",cxxopts::value(input_breakpoints_file))
+            ("use_zinb", "Use Zero-Inflated Negative Binomial model", cxxopts::value<bool>(use_zinb)->default_value("false"))
+            ("transition_model", "Model for transition between regions: Average (default), Sigmoid, Gaussian", 
+            cxxopts::value<std::string>(transition_model)->default_value("Average"))
             ;
 
     auto result = options.parse(argc, argv);
@@ -145,9 +150,9 @@ int main( int argc, char* argv[]) {
     if (compute_sp) {
       std::cout<<"Computing the probability of a region being a breakpoint..."<<std::endl;
       if (compute_lr)
-        s_p = dsp.breakpoint_detection(d_bins, window_size, evidence_min_cells, input_breakpoints);
+        s_p = dsp.breakpoint_detection(d_bins, window_size, evidence_min_cells, input_breakpoints, compute_lr, false, use_zinb, transition_model);
       else
-        s_p = dsp.breakpoint_detection(d_bins, window_size, evidence_min_cells, input_breakpoints, lr_vec, compute_lr);
+        s_p = dsp.breakpoint_detection(d_bins, window_size, evidence_min_cells, input_breakpoints, lr_vec, compute_lr, false, use_zinb, transition_model);
       std::cout<<"Computed probabilities for all regions."<<std::endl;
     }
 
