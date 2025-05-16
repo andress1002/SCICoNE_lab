@@ -183,9 +183,14 @@ class SCICoNE(object):
         return output
 
     def detect_breakpoints(self, data=None, window_size=30, threshold=3.0, bp_limit=300, bp_min=0, lr=None, sp=None,
-                            evaluate_peaks=True, compute_lr=True, compute_sp=True, input_breakpoints=None, verbosity=1):
+                            evaluate_peaks=True, compute_lr=True, compute_sp=True, input_breakpoints=None, verbosity=1, mode = "DNA", weight="average"):
         if data is None:
             data = self.data['filtered_counts']
+
+        valid_weight_functions = ["average", "gaussian"]
+        if weight not in valid_weight_functions:
+            print(f"Warning: {weight} is not a valid model: {valid_weight_functions}.\n Using 'Average' instead.")
+            weight = "average"
 
         n_cells = data.shape[0]
         n_bins = data.shape[1]
@@ -208,6 +213,7 @@ class SCICoNE(object):
             sp_file = f"{postfix}_pre_sp_vec.txt"
             np.savetxt(sp_file, sp, delimiter=',')
 
+
         input_breakpoints_file = ""
         if input_breakpoints is not None:
             input_breakpoints_new = []
@@ -216,7 +222,7 @@ class SCICoNE(object):
             for i in range(0, len(input_breakpoints)):
                 input_breakpoints_new.append(input_breakpoints[i])
             if input_breakpoints_new[-1] != n_bins-1:
-                input_breakpoints_new.append(n_bins-1)
+                input_breakpoints_new.append(n_bins-1)   
             input_breakpoints_new = np.array(input_breakpoints_new)
             input_breakpoints_file = f"{postfix}_pre_input_breakpoints_file.txt"
             np.savetxt(input_breakpoints_file, input_breakpoints_new, delimiter=',')
@@ -231,7 +237,8 @@ class SCICoNE(object):
                 f"--bp_limit={bp_limit}", f"--bp_min={bp_min}", f"--compute_lr={compute_lr}", f"--lr_file={lr_file}",\
                 f"--compute_sp={compute_sp}", f"--sp_file={sp_file}", f"--verbosity={verbosity}",\
                 f"--evaluate_peaks={evaluate_peaks}", f"--postfix={postfix}",\
-                f"--input_breakpoints_file={input_breakpoints_file}"]
+                f"--input_breakpoints_file={input_breakpoints_file}", f"--mode={mode}",\
+                f"--weight={weight}"]
             if self.verbose:
                 print(' '.join(cmd))
             if verbosity > 1:
