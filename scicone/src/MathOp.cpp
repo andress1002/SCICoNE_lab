@@ -20,7 +20,7 @@ template<class T>
 double MathOp::mat_moment(const vector<vector<T>> &v, int moment) {
 
     int rows = v.size();
-    int cols = v[0].size();
+    int cols = v[0].size(); 
 
     double sum = 0.;
     for (size_t i = 0; i < rows; ++i) {
@@ -33,123 +33,81 @@ double MathOp::mat_moment(const vector<vector<T>> &v, int moment) {
     return average;
 }
 
-
-double MathOp::sigmoid_transition(int pos, int breakpoint, double lambda_l, double lambda_r, double smoothness) {
-    // Sigmoid function that smoothly transitions between lambda_l and lambda_r
-    double transition = 1.0 / (1.0 + exp(-smoothness * (pos - breakpoint)));
-    return lambda_l * (1.0 - transition) + lambda_r * transition;
+double MathOp::estimate_zero_inflation_prob(const std::vector<double>& v) {
+    int zero_count = std::count(v.begin(), v.end(), 0.0);
+    return static_cast<double>(zero_count) / v.size();
 }
 
-vector<double> MathOp::gaussian_weights(int length, int breakpoint, double sigma) {
-    vector<double> weights(length);
-    for (int i = 0; i < length; i++) {
-        double distance = abs(i - breakpoint);
-        weights[i] = exp(-(distance*distance) / (2 * sigma*sigma));
+double MathOp::weighted_mean(const std::vector<double>& v, int center_index, double sigma) {
+    double weighted_sum = 0.0;
+    double total_weight = 0.0;
+    int n = v.size();
+
+    for (int k = 0; k < n; ++k) {
+        double distance = k - center_index;
+        double weight = exp(-(distance * distance) / (2.0 * sigma * sigma));
+        weighted_sum += v[k] * weight;
+        total_weight += weight;
     }
-    // Normalize weights
-    double sum = accumulate(weights.begin(), weights.end(), 0.0);
-    for (int i = 0; i < length; i++) {
-        weights[i] /= sum;
-    }
-    return weights;
+
+    return weighted_sum / total_weight;
 }
 
-double MathOp::breakpoint_log_likelihood(std::vector<double> v, double lambda, double nu, bool use_zinb)
+double MathOp::breakpoint_log_likelihood(std::vector<double> v, double lambda, double nu)
 {
     /*
-     * Returns the log likelihood for the Negative Binomial (NB) or
-     * Zero-Inflated Negative Binomial (ZINB) distribution.
-     * - NB: mean = lambda, overdispersion = nu
-     * - ZINB: zero-inflation parameter phi estimated from data
+     * Returns the log likelihood for the Negative binomial distribution with mean: lambda and overdispersion: nu
+     * Mean lambda is inferred by maximum likelihood approach.
+     *
      */
+    // max likelihood:  std::log(lambda) * sum(v) - (v.size() * lambda)
 
-    double ll = 0.0;
-    
-    // Initialize phi to 0 by default
-    double phi = 0.0;
-    
-    // Only calculate phi if we're using ZINB model
-    if (use_zinb) {
-        // Count zeros in the vector
-        int zero_count = 0;
-        for (const auto& val : v) {
-            if (val == 0.0) {
-                zero_count++;
-            }
-        }
-        // Compute proportion of zeros
-        phi = static_cast<double>(zero_count) / v.size();
-    }
+    double term1,term2;
+    // to avoid log(0) * 0
+    double v_sum = accumulate( v.begin(), v.end(), 0.0);
+    if (v_sum == 0 && lambda==0)
+        term1 = 0.0;
+    else
+        term1 = (log(lambda) - log(lambda+nu)) * v_sum;
 
-    // Choose between NB and ZINB models
-    if (!use_zinb) {
-        // Original NB log-likelihood
-        double v_sum = accumulate(v.begin(), v.end(), 0.0);
-        double term1, term2;
-        if (v_sum == 0 && lambda == 0)
-            term1 = 0.0;
-        else
-            term1 = (log(lambda) - log(lambda + nu)) * v_sum;
-
-        term2 = (v.size() * nu * log(lambda + nu));
-        ll = term1 - term2;
-    }
-    else {
-        // Full ZINB implementation
-        for (size_t i = 0; i < v.size(); ++i) {
-            int x = static_cast<int>(v[i]);
-
-            if (x == 0) {
-                // NB probability at zero
-                // NB(0) = (nu/(nu+lambda))^nu
-                double nb_p0 = pow(nu / (lambda + nu), nu);
-                // Mixture log-likelihood: log(phi + (1-phi)*NB(0))
-                ll += log(phi + (1.0 - phi) * nb_p0);
-            }
-            else {
-                // For x > 0: log((1-phi) * NB(x)) = log(1-phi) + log(NB(x))
-                double log_nb = lgamma(x + nu) - lgamma(nu) - lgamma(x + 1.0)
-                              + nu * log(nu / (lambda + nu))
-                              + x * log(lambda / (lambda + nu));
-                ll += log(1.0 - phi) + log_nb;
-            }
-        }
-    }
+    term2 = (v.size() * nu * log(lambda+nu));
+    double ll =  term1 - term2;
 
     assert(!std::isnan(ll));
     return ll;
 }
 
 
+double MathOp::breakpoint_log_likelihood_zinb(const std::vector<double>& v, double lambda, double nu, double pi) {
+    double log_lik = 0.0;
+    for (auto& y : v) {
+        if (y == 0) {
+            double p_nb0 = pow(nu / (lambda + nu), nu);
+            double prob = pi + (1 - pi) * p_nb0;
+            log_lik += log(std::max(prob, 1e-10));
+        } else {
+            double log_nb = y * (log(lambda) - log(lambda + nu))
+                          + nu * (log(nu) - log(lambda + nu));
+            log_lik += log(1 - pi) + log_nb;
+        }
+    }
+    return log_lik;
+}
 
-vector<vector<double>> MathOp::likelihood_ratio(vector<vector<double>> &mat, int window_size, 
-    vector<int> &known_breakpoints, bool use_zinb, std::string transition_model) {
-    /*
-     * Computes the difference of the likelihood_break and likelihood_segment cases to tell whether to break or not
-     * 
-     * Parameters:
-     * - mat: Data matrix (cells x bins)
-     * - window_size: Size of window to consider on each side of potential breakpoint
-     * - known_breakpoints: Vector of indices of known breakpoints
-     * - use_zinb: Whether to use Zero-Inflated Negative Binomial model (default: false)
-     */
 
-    // Estimate nu with method of moments, assuming all cells are in the same state
+vector<vector<double>> MathOp::likelihood_ratio(vector<vector<double>> &mat, int window_size, vector<int> &known_breakpoints, const std::string &mode, const std::string &weight)
+{
     double global_mean = mat_moment(mat, 1);
     double global_moment_2 = mat_moment(mat, 2);
     double nu = pow(global_mean, 2) / global_moment_2;
     std::cout << "Method of moments estimated nu=" << nu << std::endl;
 
-    // the last breakpoint
     size_t n_bins = mat[0].size();
-
-    size_t n_regions = known_breakpoints.size() - 1; // must include first and last bin
-    std::cout << "n_regions: " << n_regions << std::endl;
+    size_t n_regions = known_breakpoints.size() - 1;
     size_t n_cells = mat.size();
 
-    vector<vector<double>> lr_vec(n_bins, vector<double>(n_cells)); // LR of each bin for each cell
+    vector<vector<double>> lr_vec(n_bins, vector<double>(n_cells));
 
-    // Parallelize cells and known regions
     #pragma omp parallel for
     for (size_t j = 0; j < n_cells; ++j) {
         for (size_t r = 0; r < n_regions; ++r) {
@@ -157,150 +115,81 @@ vector<vector<double>> MathOp::likelihood_ratio(vector<vector<double>> &mat, int
                 int start = i - window_size;
                 int end = i + window_size;
 
-                // end cannot be equal to n_bins because cellranger DNA is puts 0 to the end
-                if (start < 0 || end >= static_cast<int>(n_bins)) {
-                    continue;
-                }
+                if (start < 0 || end >= static_cast<int>(n_bins)) continue;
 
-                vector<double> lbins = vector<double>(mat[j].begin() + start, mat[j].begin() + i);
-                vector<double> rbins = vector<double>(mat[j].begin() + i, mat[j].begin() + end);
-                vector<double> all_bins = vector<double>(mat[j].begin() + start, mat[j].begin() + end);
+                vector<double> lbins(mat[j].begin() + start, mat[j].begin() + i);
+                vector<double> rbins(mat[j].begin() + i, mat[j].begin() + end);
+                vector<double> all_bins(mat[j].begin() + start, mat[j].begin() + end);
 
-                size_t n_bins = all_bins.size();
+                size_t n_bins_local = all_bins.size();
+                vector<double> bin_positions(n_bins_local);
+                for (size_t l = 0; l < n_bins_local; ++l) bin_positions[l] = l + 1;
 
-                vector<double> bin_positions(n_bins);
-                for (size_t l = 0; l < n_bins; ++l) {
-                    bin_positions[l] = l+1; // 1 indexed
-                }
-
-                // 1. Likelihood of null model, where mean of all bins in segment follows a linear model.
-                //   The mean across the bins in the window can change according to a linear model,
-                //   which includes the case where all the bins have the same min (if the slope is zero)
-                vector<double> lambdas_segment(n_bins);
+                vector<double> lambdas_segment(n_bins_local);
                 vector<double> regression_parameters = compute_linear_regression_parameters(all_bins, window_size, nu);
                 double alpha = regression_parameters[0];
                 double beta = regression_parameters[1];
 
-                for (size_t k = 0; k < n_bins; ++k)
-                {
-                    lambdas_segment[k] = alpha + beta*bin_positions[k]; // prediction
-                    if (lambdas_segment[k] <= 0)
-                        lambdas_segment[k] = 0.0001;
+                for (size_t k = 0; k < n_bins_local; ++k) {
+                    lambdas_segment[k] = std::max(alpha + beta * bin_positions[k], 0.0001);
                 }
 
                 double ll_segment = 0;
-                for (size_t m = 0; m < n_bins; ++m) {
-                    // Updated call with use_zinb parameter
-                    ll_segment += breakpoint_log_likelihood(
-                        vector<double>(all_bins.begin()+m, all_bins.begin()+m+1), 
-                        lambdas_segment[m], 
-                        nu,
-                        use_zinb
-                    );
+                if (mode == "RNA") {
+                    double pi_segment = std::max(0.01, std::min(estimate_zero_inflation_prob(all_bins), 0.99));
+                    for (size_t m = 0; m < n_bins_local; ++m)
+                        ll_segment += breakpoint_log_likelihood_zinb({all_bins[m]}, lambdas_segment[m], nu, pi_segment);
+                } else {
+                    for (size_t m = 0; m < n_bins_local; ++m)
+                        ll_segment += breakpoint_log_likelihood({all_bins[m]}, lambdas_segment[m], nu);
                 }
 
-                // 2. Likelihood of breakpoint model - use different models
-                double ll_break = 0.0;
-                
-                // Calculate base means for left and right segments
-                double lambda_r = robust_mean(rbins);
-                double lambda_l = robust_mean(lbins);
-                double lambda_all = vec_avg(all_bins);
-                
-                // Different transition models
-                if (transition_model == "Average") {
-                    // Original step function implementation (same as case TransitionModel::STEP)
-                    // Make sure lambda_all is between bounds
-                    lambda_all = std::max(lambda_all, std::min(lambda_r, lambda_l));
-                    lambda_all = std::min(lambda_all, std::max(lambda_r, lambda_l));
-            
-                    // Apply gap thresholds as in current code
+                // Compute lambda by averaging or using Gaussian weights
+                // Compute sigma for Gaussian weights based on how noisy the data is (stddev)
+                double sigma;
+                if (weight == "gaussian") {
+                    double stddev = MathOp::st_deviation(all_bins);
+                    sigma = std::max(1.0, std::min(window_size / (1.0 + stddev), static_cast<double>(window_size)));
+                }
+                double lambda_l = (weight == "gaussian") ? weighted_mean(lbins, lbins.size() - 1, sigma) : vec_avg(lbins);
+                double lambda_r = (weight == "gaussian") ? weighted_mean(rbins, 0, sigma) : vec_avg(rbins);
+                double lambda_all = (weight == "gaussian") ? weighted_mean(all_bins, all_bins.size() / 2, sigma) : vec_avg(all_bins);
+
+                lambda_all = std::max(std::min(lambda_all, std::max(lambda_r, lambda_l)), std::min(lambda_r, lambda_l));
+
+                double gap = fabs(lambda_r - lambda_l);
+                double gap_thres = lambda_all / 4.0;
+                double scaling = std::max(lambda_all / (4.0 * gap), 1.0);
+
+                if (gap < gap_thres) {
                     if (lambda_r > lambda_l) {
-                        double gap = lambda_r - lambda_l;
-                        double gap_thres = lambda_all/4.0;
-                        double scaling = std::max(lambda_all/(4.0*gap), 1.0);
-                        if (gap < gap_thres) {
-                            lambda_r = lambda_all + scaling*(lambda_r-lambda_all);
-                            lambda_l = lambda_all - scaling*(lambda_all-lambda_l);
-                        }
-                    } else if (lambda_r < lambda_l) {
-                        double gap = lambda_l - lambda_r;
-                        double gap_thres = lambda_all/4.0;
-                        double scaling = std::max(lambda_all/(4.0*gap), 1.0);
-                        if (gap < gap_thres) {
-                            lambda_l = lambda_all + scaling*(lambda_l-lambda_all);
-                            lambda_r = lambda_all - scaling*(lambda_all-lambda_r);
-                        }
+                        lambda_r = lambda_all + scaling * (lambda_r - lambda_all);
+                        lambda_l = lambda_all - scaling * (lambda_all - lambda_l);
+                    } else {
+                        lambda_l = lambda_all + scaling * (lambda_l - lambda_all);
+                        lambda_r = lambda_all - scaling * (lambda_all - lambda_r);
                     }
-                    if (lambda_r <= 0) lambda_r = 0.0001;
-                    if (lambda_l <= 0) lambda_l = 0.0001;
-                    
-                    // Original step function likelihood
-                    ll_break = breakpoint_log_likelihood(lbins, lambda_l, nu, use_zinb) +
-                               breakpoint_log_likelihood(rbins, lambda_r, nu, use_zinb);
-                }
-                else if (transition_model == "Sigmoid") {
-                    // Sigmoid transition implementation (same as case TransitionModel::SIGMOID)
-                    // Ensure positive lambdas
-                    if (lambda_r <= 0) lambda_r = 0.0001;
-                    if (lambda_l <= 0) lambda_l = 0.0001;
-                    
-                    // ADAPTIVE PARAMETER: Scale smoothness based on window size
-                    // Smaller window → sharper transition, larger window → more gradual
-                    double adaptive_smoothness = max(1.5, min(6.0/window_size, 3.0));
-                    
-                    // Compute bin-specific lambdas using sigmoid transition with adaptive smoothness
-                    for (size_t k = 0; k < all_bins.size(); k++) {
-                        double bin_lambda = sigmoid_transition(k, window_size, lambda_l, lambda_r, adaptive_smoothness);
-                        
-                        // Calculate likelihood for this bin
-                        ll_break += breakpoint_log_likelihood(
-                            vector<double>(all_bins.begin() + k, all_bins.begin() + k + 1),
-                            bin_lambda, nu, use_zinb
-                        );
-                    }
-                }
-                else if (transition_model == "Gaussian") {
-                    // Gaussian weighting implementation (same as case TransitionModel::GAUSSIAN)
-                    // Ensure positive lambdas
-                    if (lambda_r <= 0) lambda_r = 0.0001;
-                    if (lambda_l <= 0) lambda_l = 0.0001;
-                    
-                    // ADAPTIVE PARAMETER: Scale sigma based on window size
-                    // For Gaussian, we want sigma to be proportional to window size
-                    // but not grow too quickly for large windows
-                    double adaptive_sigma = max(2.0, min(window_size/2.0, 10.0));
-                    
-                    // Get gaussian weights with adaptive sigma
-                    vector<double> weights = gaussian_weights(all_bins.size(), window_size, adaptive_sigma);
-                    
-                    // Calculate weighted means for each position
-                    for (size_t k = 0; k < all_bins.size(); k++) {
-                        // Weight lambda based on distance from breakpoint
-                        double weight_factor = k < window_size ? 
-                            (1.0 - weights[k]) : weights[k];
-                        
-                        double bin_lambda = lambda_l * (1.0 - weight_factor) + 
-                                           lambda_r * weight_factor;
-                        
-                        // Calculate likelihood for this bin
-                        ll_break += breakpoint_log_likelihood(
-                            vector<double>(all_bins.begin() + k, all_bins.begin() + k + 1),
-                            bin_lambda, nu, use_zinb
-                        );
-                    }
-                }
-                else {
-                    // Default to Average for unknown models
-                    ll_break = breakpoint_log_likelihood(lbins, lambda_l, nu, use_zinb) +
-                              breakpoint_log_likelihood(rbins, lambda_r, nu, use_zinb);
                 }
 
-                // 3. Output the difference between the two models' likelihoods
-                lr_vec[i][j] = 2*(ll_break - ll_segment);
+                lambda_r = std::max(lambda_r, 0.0001);
+                lambda_l = std::max(lambda_l, 0.0001);
+
+                double ll_break;
+                if (mode == "RNA") {
+                    double pi_l = std::max(0.01, std::min(estimate_zero_inflation_prob(lbins), 0.99));
+                    double pi_r = std::max(0.01, std::min(estimate_zero_inflation_prob(rbins), 0.99));
+                    ll_break = breakpoint_log_likelihood_zinb(lbins, lambda_l, nu, pi_l)
+                             + breakpoint_log_likelihood_zinb(rbins, lambda_r, nu, pi_r);
+                } else {
+                    ll_break = breakpoint_log_likelihood(lbins, lambda_l, nu)
+                             + breakpoint_log_likelihood(rbins, lambda_r, nu);
+                }
+
+                lr_vec[i][j] = 2 * (ll_break - ll_segment);
             }
         }
     }
+
     return lr_vec;
 }
 

@@ -272,15 +272,15 @@ int SignalProcessing::find_highest_peak(vector<T> &signal, int lb, int ub) {
 
 vector<double> SignalProcessing::breakpoint_detection(vector<vector<double>> &mat, int window_size, 
     int k_star, vector<int> &known_breakpoints, bool compute_lr, bool lr_only, 
-    bool use_zinb, std::string transition_model) {
+    std::string mode, std::string weight) {
     
     vector<vector<double>> lr_vec;
     return breakpoint_detection(mat, window_size, k_star, known_breakpoints, 
-                               lr_vec, compute_lr, lr_only, use_zinb, transition_model);
+                               lr_vec, compute_lr, lr_only, mode, weight);
 }
 
 vector<double>
-SignalProcessing::breakpoint_detection(vector<vector<double>> &mat, int window_size, int k_star, vector<int> &known_breakpoints, vector<vector<double>> &lr_vec, bool compute_lr, bool lr_only, bool use_zinb, std::string transition_model) {
+SignalProcessing::breakpoint_detection(vector<vector<double>> &mat, int window_size, int k_star, vector<int> &known_breakpoints, vector<vector<double>> &lr_vec, bool compute_lr, bool lr_only, std::string mode, std::string weight) {
     /*
      * Performs the breakpoint detection
      * window_size: there cannot be multiple breakpoints within a window_size
@@ -294,7 +294,7 @@ SignalProcessing::breakpoint_detection(vector<vector<double>> &mat, int window_s
 
     // compute the LR scores
     if (compute_lr) {
-        lr_vec = MathOp::likelihood_ratio(mat, window_size, known_breakpoints, use_zinb, transition_model);
+        lr_vec = MathOp::likelihood_ratio(mat, window_size, known_breakpoints, mode, weight);
     }
     else {
         std::cout << "Skipping LR computation" << std::endl;
