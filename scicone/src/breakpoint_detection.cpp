@@ -41,7 +41,11 @@ int main( int argc, char* argv[]) {
     string input_breakpoints_file;
     bool add_input_breakpoints = false;
     std::string mode = "DNA";
-    std::string weight = "average";
+    vector<vector<double>> lambda_mat_break;         // breakpoint model matrix
+    vector<vector<double>> lambda_mat_null;
+    
+        // null model matrix
+
 
     cxxopts::Options options("Breakpoint detection executable", "detects the breakpoints in the genome across all cells.");
     options.add_options()
@@ -61,9 +65,7 @@ int main( int argc, char* argv[]) {
             ("compute_sp","Boolean indicator of wether the per bin breakpoint evidence should be computed (true) or if a file is passed (false)",cxxopts::value<bool>(compute_sp)->default_value(to_string(compute_sp)))
             ("evaluate_peaks","Boolean indicator of wether to evaluate peaks and call breakpoints.",cxxopts::value<bool>(evaluate_peaks)->default_value(to_string(evaluate_peaks)))
             ("input_breakpoints_file","Path to file indicating bins which correspond to known breakpoints that must be included.",cxxopts::value(input_breakpoints_file))
-            ("mode", "Use Zero-Inflated Negative Binomial model", cxxopts::value<std::string>(mode)->default_value("DNA"))
-            ("weight", "Model for transition between regions: average (default), gaussian", 
-            cxxopts::value<std::string>(weight)->default_value("Average"))
+            ("mode", "DNA or RNA modeling of the data", cxxopts::value<std::string>(mode)->default_value("DNA"))
             ;
 
     auto result = options.parse(argc, argv);
@@ -150,9 +152,15 @@ int main( int argc, char* argv[]) {
     if (compute_sp) {
       std::cout<<"Computing the probability of a region being a breakpoint..."<<std::endl;
       if (compute_lr)
-        s_p = dsp.breakpoint_detection(d_bins, window_size, evidence_min_cells, input_breakpoints, compute_lr, false, mode, weight);
+        s_p = dsp.breakpoint_detection(
+            d_bins, window_size, evidence_min_cells, input_breakpoints,
+            mode, lambda_mat_null, lambda_mat_break
+        );
       else
-        s_p = dsp.breakpoint_detection(d_bins, window_size, evidence_min_cells, input_breakpoints, lr_vec, compute_lr, false, mode, weight);
+        s_p = dsp.breakpoint_detection(
+            d_bins, window_size, evidence_min_cells, input_breakpoints,
+            mode, lambda_mat_null, lambda_mat_break, lr_vec, compute_lr
+        );
       std::cout<<"Computed probabilities for all regions."<<std::endl;
     }
 
@@ -359,5 +367,50 @@ int main( int argc, char* argv[]) {
     reg_sizes_file << ub+window_size - all_max_ids[all_max_ids.size()-1] << endl; // add the last one
 
     std::cout<<"Segmented region sizes are written to file"<<std::endl;
+
+    if (mode == "RNA") {
+        std::cout << "Generating smoothed matrix using final breakpoint calls..." << std::endl;
+
+        // Load both lambda matrices
+        vector<vector<double>> lambda_mat_break(n_bins, vector<double>(n_cells));
+        vector<vector<double>> lambda_null_mat(n_bins, vector<double>(n_cells));
+        Utils::read_counts(lambda_mat_break, "./" + f_name_posfix + "_lambda_break.csv");
+        Utils::read_counts(lambda_null_mat,   "./" + f_name_posfix + "_lambda_null.csv");
+
+        // Make a set of final breakpoints for fast lookup
+        std::unordered_set<int> breakpoint_bins;
+        for (auto idx : all_max_ids) {
+            breakpoint_bins.insert(idx + window_size); // +window_size to match written output
+        }
+
+        // Build smoothed matrix
+        vector<vector<double>> smoothed(n_cells, vector<double>(n_bins));
+        for (int j = 0; j < n_cells; ++j) {
+            for (int i = 0; i < n_bins; ++i) {
+                if (breakpoint_bins.count(i) > 0) {
+                    smoothed[j][i] = lambda_mat_break[i][j];
+                } else {
+                    smoothed[j][i] = lambda_null_mat[i][j];
+                }
+            }
+        }
+
+        // Write smoothed matrix
+        std::cout << "Writing smoothed matrix to file..." << std::endl;
+        std::ofstream smoothed_file("./" + f_name_posfix + "_smoothed.csv");
+        for (const auto& row : smoothed) {
+            for (size_t j = 0; j < row.size(); ++j) {
+                smoothed_file << row[j];
+                if (j < row.size() - 1)
+                    smoothed_file << ",";
+            }
+            smoothed_file << "\n";
+        }
+        std::cout << "Smoothed matrix written to './" + f_name_posfix + "_smoothed.csv'" << std::endl;
+    }
+
     return EXIT_SUCCESS;
 }
+
+
+
