@@ -183,14 +183,9 @@ class SCICoNE(object):
         return output
 
     def detect_breakpoints(self, data=None, window_size=30, threshold=3.0, bp_limit=300, bp_min=0, lr=None, sp=None,
-                            evaluate_peaks=True, compute_lr=True, compute_sp=True, input_breakpoints=None, verbosity=1, mode = "DNA", weight="average"):
+                            evaluate_peaks=True, compute_lr=True, compute_sp=True, input_breakpoints=None, verbosity=1, mode = "DNA"):
         if data is None:
             data = self.data['filtered_counts']
-
-        valid_weight_functions = ["average", "gaussian"]
-        if weight not in valid_weight_functions:
-            print(f"Warning: {weight} is not a valid model: {valid_weight_functions}.\n Using 'Average' instead.")
-            weight = "average"
 
         n_cells = data.shape[0]
         n_bins = data.shape[1]
@@ -237,8 +232,7 @@ class SCICoNE(object):
                 f"--bp_limit={bp_limit}", f"--bp_min={bp_min}", f"--compute_lr={compute_lr}", f"--lr_file={lr_file}",\
                 f"--compute_sp={compute_sp}", f"--sp_file={sp_file}", f"--verbosity={verbosity}",\
                 f"--evaluate_peaks={evaluate_peaks}", f"--postfix={postfix}",\
-                f"--input_breakpoints_file={input_breakpoints_file}", f"--mode={mode}",\
-                f"--weight={weight}"]
+                f"--input_breakpoints_file={input_breakpoints_file}", f"--mode={mode}"]
             if self.verbose:
                 print(' '.join(cmd))
             if verbosity > 1:
@@ -265,12 +259,29 @@ class SCICoNE(object):
             for fn in os.listdir(cwd):
                 if postfix in fn:
                     key = fn.split(postfix)[1].split('_', 1)[1].split('.')[0]
-                    output[key] = np.loadtxt(fn, delimiter=',')
+
+                    # Load file to numpy array
+                    try:
+                        data_array = np.loadtxt(fn, delimiter=',')
+                        output[key] = data_array
+                        if self.verbose:
+                            print(f"Loaded {key} from {fn}, shape: {data_array.shape}")
+                    except Exception as load_err:
+                        print(f"Warning: failed to load {fn} ({key}): {load_err}")
+
+                    # Remove file unless persistence is set
                     if not self.persistence:
                         os.remove(fn)
+
+            # Validate presence of ZINB lambda matrix
+            if 'smoothed' in output:
+                if self.verbose:
+                    print("smoothed matrix successfully loaded.")
+            else:
+                print("Warning: smoothed matrix not found. Ensure C++ writes it to disk.")
         except OSError as e:
             print("OSError: ", e.output, e.stdout, e.stderr)
-
+            
         self.bps = output
         if 'unfiltered_chromosome_stops' in self.data.keys():
             print('Mapping to genes...')

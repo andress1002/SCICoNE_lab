@@ -10,7 +10,7 @@ def filter_bins(counts, thres=3):
     n_bins = counts.shape[1]
     avg_reads_per_bin = np.mean(counts, axis=0)
     median = np.median(avg_reads_per_bin)
-    outliers_idx = np.where(avg_reads_per_bin > thres*np.median(avg_reads_per_bin))[0]
+    outliers_idx = np.where(avg_reads_per_bin > thres*median)[0]
     is_outlier = np.zeros((n_bins,))
     is_outlier[outliers_idx] = 1
     counts = counts[:,~is_outlier.astype(bool)]

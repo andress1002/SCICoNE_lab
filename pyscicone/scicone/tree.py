@@ -441,7 +441,7 @@ class Tree(object):
                             self.node_dict[node]['gene_event_dict'][gene] = self.node_dict[node]['region_event_dict'][region]
 
     def set_graphviz_str(self, root_label='Neutral', node_sizes=True, node_labels=True, color="#E6E6FA", event_fontsize=14, nodesize_fontsize=14,
-                                nodelabel_fontsize=14, gene_labels=False, gene_list=None, tumor_type=None):
+                     nodelabel_fontsize=14, gene_labels=False, gene_list=None, tumor_type=None, mode='DNA'):
         if gene_labels is True and gene_list is None:
             # Load COSMIC gene list
             bpath = os.path.join(os.path.dirname(__file__), 'data')
@@ -478,34 +478,36 @@ class Tree(object):
                 merged_labels = []
 
                 event_dict = self.node_dict[key]['region_event_dict']
-                first_region = list(event_dict.keys())[0]
-                previous_event = event_dict[first_region]
-                last_region = first_region
-                for i, region in enumerate(event_dict):
-                    if i > 0:
-                        event = event_dict[region]
-                        if int(region) == int(last_region) + 1 and event == previous_event:
-                            last_region = region  # update the end
-                        else:
-                            if first_region == last_region:
-                                merged_labels.append(f"{int(previous_event):+}R{first_region}")
-                            else:
-                                merged_labels.append(f"{int(previous_event):+}R{first_region}:{last_region}")
-                            first_region = last_region = region
-                        previous_event = event
-                if first_region == last_region:
-                    merged_labels.append(f"{int(previous_event):+}R{first_region}")
+                if not event_dict:
+                    region_str_merged_labels = ""
                 else:
-                    merged_labels.append(f"{int(previous_event):+}R{first_region}:{last_region}")
+                    first_region = list(event_dict.keys())[0]
+                    previous_event = event_dict[first_region]
+                    last_region = first_region
+                    for i, region in enumerate(event_dict):
+                        if i > 0:
+                            event = event_dict[region]
+                            if int(region) == int(last_region) + 1 and event == previous_event:
+                                last_region = region  # update the end
+                            else:
+                                if first_region == last_region:
+                                    merged_labels.append(f"{int(previous_event):+}R{first_region}")
+                                else:
+                                    merged_labels.append(f"{int(previous_event):+}R{first_region}:{last_region}")
+                                first_region = last_region = region
+                        previous_event = event
+                    if first_region == last_region:
+                        merged_labels.append(f"{int(previous_event):+}R{first_region}")
+                    else:
+                        merged_labels.append(f"{int(previous_event):+}R{first_region}:{last_region}")
 
-                # Add line breaks
-                region_str_merged_labels = " ".join(
-                        f"{x}<br/>" if i % 5 == 0 and i > 0 else str(x)
-                        for i, x in enumerate(merged_labels)
-                    )
-                # Remove trailing line break
-                if ''.join(list(region_str_merged_labels)[-len('<br/>'):]) == '<br/>':
-                    region_str_merged_labels = ''.join(list(region_str_merged_labels)[:-len('<br/>')])
+                    # Add line breaks
+                    region_str_merged_labels = " ".join(
+                            f"{x}<br/>" if i % 5 == 0 and i > 0 else str(x)
+                            for i, x in enumerate(merged_labels)
+                        )
+                    if ''.join(list(region_str_merged_labels)[-len('<br/>'):]) == '<br/>':
+                        region_str_merged_labels = ''.join(list(region_str_merged_labels)[:-len('<br/>')])
 
                 if gene_labels:
                     try:
@@ -514,8 +516,6 @@ class Tree(object):
 
                         # Get all events
                         unique_events = np.unique(np.array(list(self.node_dict[key]['region_event_dict'].values())))
-
-                        # Sort by descending
                         sorted_unique_events = np.sort(unique_events.astype(int))[::-1]
 
                         for event in sorted_unique_events:
@@ -544,7 +544,6 @@ class Tree(object):
                                 )
                             merged_genes = merged_genes.replace('<br/>,',',<br/>')
 
-                            # Remove trailing line break
                             if ''.join(list(merged_genes)[-len('<br/>'):]) == '<br/>':
                                 merged_genes = ''.join(list(merged_genes)[:-len('<br/>')])
 
@@ -553,21 +552,30 @@ class Tree(object):
                                 event_str = f'<font point-size="{event_fontsize}" color="{color}">{event:+}</font>: ' + merged_genes + '<br/><br/>'
                                 merged_labels.append(event_str)
 
-                            str_merged_labels = ''.join(merged_labels)
+                        str_merged_labels = ''.join(merged_labels)
+                        if ''.join(list(str_merged_labels)[-len('<br/><br/>'):]) == '<br/><br/>':
+                            str_merged_labels = ''.join(list(str_merged_labels)[:-len('<br/><br/>')])
 
-                            # Remove trailing line breaks
-                            if ''.join(list(str_merged_labels)[-len('<br/><br/>'):]) == '<br/><br/>':
-                                str_merged_labels = ''.join(list(str_merged_labels)[:-len('<br/><br/>')])
+                        # Count amplified and deleted regions
+                        number_of_amps = np.sum(['+' in s for s in list(region_str_merged_labels)])
+                        number_of_dels = np.sum(['-' in s for s in list(region_str_merged_labels)])
+                        if len(merged_labels) == 0:
+                            str_merged_labels = f'<font point-size="{event_fontsize}">({number_of_amps}+, {number_of_dels}-)</font>'
+                        else:
+                            str_merged_labels = f'<font point-size="{event_fontsize}">({number_of_amps}+, {number_of_dels}-)</font>' + '<br/><br/>' + str_merged_labels
 
-                            # Count amplified and deleted regions
-                            number_of_amps = np.sum(['+' in s for s in list(region_str_merged_labels)])
-                            number_of_dels = np.sum(['-' in s for s in list(region_str_merged_labels)])
-                            if len(merged_labels) == 0:
-                                str_merged_labels = f'<font point-size="{event_fontsize}">({number_of_amps}+, {number_of_dels}-)</font>'
-                            else:
-                                str_merged_labels = f'<font point-size="{event_fontsize}">({number_of_amps}+, {number_of_dels}-)</font>' + '<br/><br/>' + str_merged_labels
-                    except:
+                    except Exception as e:
                         str_merged_labels = region_str_merged_labels
+                elif mode == 'RNA':
+                    # For RNA, show gene names for each region
+                    gene_names = gene_list if gene_list is not None else []
+                    region_gene_map = {str(i): gene_names[i] for i in range(len(gene_names))}
+                    region_labels = []
+                    for region in event_dict:
+                        gene = region_gene_map.get(str(region), f"Gene{region}")
+                        region_labels.append(f"{int(event_dict[region]):+} {gene}")
+                    # Add line breaks
+                    str_merged_labels = "<br/>".join(region_labels)
                 else:
                     str_merged_labels = region_str_merged_labels
 
@@ -612,13 +620,11 @@ class Tree(object):
         self.graphviz_str = '\n'.join(graphviz_header + graphviz_labels + graphviz_links + ["}"])
 
     def plot_tree(self, root_label='Neutral', node_sizes=True, node_labels=True, color="#E6E6FA", event_fontsize=14, nodesize_fontsize=14, nodelabel_fontsize=14,
-                    gene_labels=False, gene_list=None, tumor_type=None):
-
+              gene_labels=False, gene_list=None, tumor_type=None, mode='DNA'):
         self.set_graphviz_str(root_label=root_label, node_sizes=node_sizes, node_labels=node_labels, color=color,
-                                event_fontsize=event_fontsize, nodesize_fontsize=nodesize_fontsize,
-                                nodelabel_fontsize=nodelabel_fontsize,
-                                gene_labels=gene_labels, gene_list=gene_list, tumor_type=tumor_type)
-
+                          event_fontsize=event_fontsize, nodesize_fontsize=nodesize_fontsize,
+                          nodelabel_fontsize=nodelabel_fontsize,
+                          gene_labels=gene_labels, gene_list=gene_list, tumor_type=tumor_type, mode=mode)
         s = Source(self.graphviz_str)
         return s
 
