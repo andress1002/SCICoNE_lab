@@ -99,7 +99,9 @@ public:
     static double huber_mean(vector<double> &z, double delta);
     static double breakpoint_log_likelihood_zinb(const std::vector<double>& v, double lambda, double nu, double pi);
     static double estimate_zero_inflation_prob(const std::vector<double>& v);
-    static std::pair<double, double> fit_zinb_parameters(const std::vector<double>& values, double nu);
+    static std::pair<double, double> fit_zinb_parameters(
+        const std::vector<double>& values, 
+        double nu);
 };
 
 

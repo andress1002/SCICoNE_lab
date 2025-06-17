@@ -324,8 +324,8 @@
             lambda_mat_null = lr_result.lambda_mat_null;
             lambda_mat_break = lr_result.lambda_mat_break;
 
-            std::ofstream lambda_null_file("./" + f_name_posfix + "_lambda_null_mat.csv");
-            std::ofstream lambda_break_file("./" + f_name_posfix + "_lambda_break_mat.csv");
+            std::ofstream lambda_null_file("./" + f_name_posfix + "_lambda_mat_null.csv");
+            std::ofstream lambda_break_file("./" + f_name_posfix + "_lambda_mat_break.csv");
 
             for (size_t j = 0; j < n_cells; ++j) {
                 for (size_t i = 0; i < n_bins; ++i) {
@@ -386,8 +386,8 @@
         vector<vector<double>> posterior(n_breakpoints,vector<double>(n_cells+1));
         vector<vector<double>> posterior_k(n_breakpoints,vector<double>(n_cells+1));
 
-        vector<double> s_p;
-        vector<double> expected_k_vector;
+        vector<double> s_p(n_breakpoints);
+        vector<double> expected_k_vector(n_breakpoints);
 
         for (size_t l = 0; l < n_breakpoints; ++l)
         {
@@ -408,7 +408,7 @@
                 sp_denom = log(sp_denom);
 
             double log_expected_cells = expected_nom - sp_denom;
-            expected_k_vector.push_back(log_expected_cells);
+            expected_k_vector[l] = log_expected_cells;
 
             double max_local = *max_element(log_posterior[l].begin(), log_posterior[l].begin() + k_star - 1);
     //        double max_local_ub = *max_element(log_posterior[l].begin() + ul, log_posterior[l].end());
@@ -426,7 +426,7 @@
 
             double sp_val = sp_denom - sp_num_total;
 
-            s_p.push_back(sp_val);
+            s_p[l] = sp_val;
 
         }
 

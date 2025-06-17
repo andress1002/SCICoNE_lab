@@ -40,26 +40,41 @@ double zinb_log_likelihood_objective(const std::vector<double> &x, std::vector<d
     return -loglik;
 }
 
-std::pair<double, double> MathOp::fit_zinb_parameters(const std::vector<double>& values, double nu) {
-    ZINB_Fit_Data data = { values, nu };
-    nlopt::opt opt(nlopt::LN_BOBYQA, 2);
-    opt.set_min_objective(zinb_log_likelihood_objective, &data);
-    opt.set_xtol_rel(1e-6);
-    opt.set_maxeval(200);
-    // std::vector<double> x = { std::max(vec_avg(values), 1e-3), std::clamp((double)std::count(values.begin(), values.end(), 0) / values.size(), 0.01, 0.99) };
-    std::vector<double> x = {
-        std::max(vec_avg(values), 1e-3),
-        std::min(std::max((double)std::count(values.begin(), values.end(), 0) / values.size(), 0.01), 0.99) // manual clamp
-    };
-    opt.set_lower_bounds({1e-5, 1e-5});
-    opt.set_upper_bounds({1000.0, 0.999});
-    double minf;
-    try { opt.optimize(x, minf); }
-    catch (std::exception &e) {
-        std::cerr << "ZINB optimization failed: " << e.what() << std::endl;
-        return {x[0], x[1]};
+std::pair<double, double> MathOp::fit_zinb_parameters(
+    const std::vector<double>& values, 
+    double nu) {
+    
+    try {
+        ZINB_Fit_Data data = { values, nu };
+        nlopt::opt opt(nlopt::LN_BOBYQA, 2);
+        opt.set_min_objective(zinb_log_likelihood_objective, &data);
+        opt.set_xtol_rel(1e-6);
+        opt.set_maxeval(200);
+        std::vector<double> x = {
+            std::max(vec_avg(values), 1e-3),
+            std::min(std::max((double)std::count(values.begin(), values.end(), 0) / values.size(), 0.01), 0.99)
+        };
+        opt.set_lower_bounds({1e-5, 1e-5});
+        opt.set_upper_bounds({1000.0, 0.999});
+        double minf;
+        opt.optimize(x, minf);
+        
+        double opt_lambda = x[0];
+        double opt_pi = x[1];
+        
+        return {opt_lambda, opt_pi};
     }
-    return {x[0], x[1]};
+    catch (std::exception &e) {
+        std::cerr << "NLopt failed: " << e.what() << std::endl;
+        
+        // Original fallback logic with hard-coded calculations
+        double lambda_fallback = robust_mean(values);
+        double pi_fallback = std::min(std::max((double)std::count(values.begin(), values.end(), 0) / values.size(), 0.01), 0.99);
+        
+        std::cout << "Using fallback estimations: lambda=" << lambda_fallback 
+                  << ", pi=" << pi_fallback << std::endl;
+        return {lambda_fallback, pi_fallback};
+    }
 }
 
 // === Likelihood functions ===
@@ -74,20 +89,43 @@ double MathOp::breakpoint_log_likelihood(std::vector<double> v, double lambda, d
 
 double MathOp::breakpoint_log_likelihood_zinb(const std::vector<double>& v, double lambda, double nu, double pi) {
     double log_lik = 0.0;
+    double log_lambda = log(lambda);
+    double log_nu = log(nu);
     double log_lambda_nu = log(lambda + nu);
+    double log_1_minus_pi = log(1 - pi);
+    
+    // Pre-compute log of NB probability of zero for efficiency
+    double log_nb_prob_zero = nu * (log_nu - log_lambda_nu);
+    
     for (auto& y : v) {
         if (y == 0) {
-            double p_nb0 = pow(nu / (lambda + nu), nu);
-            log_lik += log(std::max(pi + (1 - pi) * p_nb0, 1e-10));
+            // For zeros, use log-sum-exp trick to avoid underflow
+            double log_pi = log(pi);
+            double log_1_minus_pi_times_nb_zero = log_1_minus_pi + log_nb_prob_zero;
+            
+            // Use log-sum-exp trick: log(a+b) = log(a) + log(1 + exp(log(b) - log(a)))
+            double max_term = std::max(log_pi, log_1_minus_pi_times_nb_zero);
+            double log_term = max_term + log(exp(log_pi - max_term) + 
+                                           exp(log_1_minus_pi_times_nb_zero - max_term));
+            log_lik += log_term;
         } else {
-            log_lik += log(1 - pi) + y * (log(lambda) - log_lambda_nu) + nu * (log(nu) - log_lambda_nu);
+            // For non-zeros, we're not affected by zero-inflation
+            // log((1-pi) * NB(y|lambda,nu))
+            log_lik += log_1_minus_pi + 
+                      lgamma(y + nu) - lgamma(nu) - lgamma(y + 1) +
+                      nu * log_nu +
+                      y * log_lambda -
+                      (nu + y) * log_lambda_nu;
         }
     }
     return log_lik;
 }
 
 // === Likelihood Ratio Core ===
-LRResult MathOp::likelihood_ratio(std::vector<std::vector<double>> &mat, int window_size, std::vector<int> &known_breakpoints, const std::string &mode) {
+LRResult MathOp::likelihood_ratio(std::vector<std::vector<double>> &mat, 
+                               int window_size, 
+                               std::vector<int> &known_breakpoints,
+                               const std::string &mode) {
     double global_mean = mat_moment(mat, 1);
     double global_moment_2 = mat_moment(mat, 2);
     double nu = pow(global_mean, 2) / global_moment_2;

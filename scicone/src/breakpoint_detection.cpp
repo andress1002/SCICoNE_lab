@@ -128,6 +128,8 @@ int main( int argc, char* argv[]) {
     std::cout<<"Reading the input matrix: " << d_matrix_file <<std::endl;
     vector<vector<double>> d_bins(n_cells, vector<double>(n_bins));
     Utils::read_counts(d_bins, d_matrix_file);
+    n_cells = d_bins.size();
+    n_bins = d_bins[0].size();
     std::cout<<"Input matrix is read."<<std::endl;
 
     // create the region_sizes
@@ -177,13 +179,16 @@ int main( int argc, char* argv[]) {
       std::cout << "Max sp: " << max << std::endl;
       for (auto const &b: input_breakpoints) {
         if (b != 0 && b != n_bins) {
-          s_p[b] = max * 100;
-    	  for (int i = 1; i < window_size; ++i) {
-    	  	  std::cout << b-i << ", " << b+i  << std::endl;
-    		  s_p[b-i] = 1e-8;//s_p[b-window_size];
-    		  s_p[b+i] = 1e-8;//s_p[b+window_size];
-    	  }
-          std::cout << "Adding " << b << ": " << s_p[b] << std::endl;
+            if (b >= 0 && b < s_p.size()) {
+                s_p[b] = max * 100;
+                for (int i = 1; i < window_size; ++i) {
+                    if (b - i >= 0)
+                        s_p[b - i] = 1e-8;
+                    if (b + i < s_p.size())
+                        s_p[b + i] = 1e-8;
+                }
+                std::cout << "Adding " << b << ": " << s_p[b] << std::endl;
+            }
         }
        }
       std::cout << "Done." << std::endl;
@@ -372,10 +377,23 @@ int main( int argc, char* argv[]) {
         std::cout << "Generating smoothed matrix using final breakpoint calls..." << std::endl;
 
         // Load both lambda matrices
-        vector<vector<double>> lambda_mat_break(n_bins, vector<double>(n_cells));
-        vector<vector<double>> lambda_null_mat(n_bins, vector<double>(n_cells));
-        Utils::read_counts(lambda_mat_break, "./" + f_name_posfix + "_lambda_break.csv");
-        Utils::read_counts(lambda_null_mat,   "./" + f_name_posfix + "_lambda_null.csv");
+        vector<vector<double>> local_lambda_mat_break(n_cells, vector<double>(n_bins));
+        vector<vector<double>> local_lambda_mat_null(n_cells, vector<double>(n_bins));
+        Utils::read_counts(local_lambda_mat_break, "./" + f_name_posfix + "_lambda_mat_break.csv");
+        Utils::read_counts(local_lambda_mat_null, "./" + f_name_posfix + "_lambda_mat_null.csv");
+
+        std::cout << "lambda_mat_break shape: " << local_lambda_mat_break.size() << " x " << local_lambda_mat_break[0].size() << std::endl;
+        std::cout << "lambda_mat_null shape: " << local_lambda_mat_null.size() << " x " << local_lambda_mat_null[0].size() << std::endl;
+        
+        if (local_lambda_mat_break.size() != n_cells || local_lambda_mat_break[0].size() != n_bins) {
+            std::cerr << "lambda_mat_break dimensions do not match n_cells x n_bins!" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+        if (local_lambda_mat_null.size() != n_cells || local_lambda_mat_null[0].size() != n_bins) {
+            std::cerr << "lambda_mat_null dimensions do not match n_cells x n_bins!" << std::endl;
+            exit(EXIT_FAILURE);
+        }
+            
 
         // Make a set of final breakpoints for fast lookup
         std::unordered_set<int> breakpoint_bins;
@@ -383,14 +401,24 @@ int main( int argc, char* argv[]) {
             breakpoint_bins.insert(idx + window_size); // +window_size to match written output
         }
 
-        // Build smoothed matrix
+        
+      if (local_lambda_mat_break.size() != d_bins.size() || local_lambda_mat_break[0].size() != d_bins[0].size()) {
+          std::cerr << "lambda_mat_break size mismatch!" << std::endl;
+          exit(EXIT_FAILURE);
+      }
+      if (local_lambda_mat_null.size() != d_bins.size() || local_lambda_mat_null[0].size() != d_bins[0].size()) {
+          std::cerr << "lambda_mat_null size mismatch!" << std::endl;
+          exit(EXIT_FAILURE);
+      }
+
+// Build smoothed matrix
         vector<vector<double>> smoothed(n_cells, vector<double>(n_bins));
-        for (int j = 0; j < n_cells; ++j) {
-            for (int i = 0; i < n_bins; ++i) {
-                if (breakpoint_bins.count(i) > 0) {
-                    smoothed[j][i] = lambda_mat_break[i][j];
+        for (int cell = 0; cell < n_cells; ++cell) {
+            for (int bin = 0; bin < n_bins; ++bin) {
+                if (breakpoint_bins.count(bin) > 0) {
+                    smoothed[cell][bin] = local_lambda_mat_break[cell][bin];
                 } else {
-                    smoothed[j][i] = lambda_null_mat[i][j];
+                    smoothed[cell][bin] = local_lambda_mat_null[cell][bin];
                 }
             }
         }
@@ -411,6 +439,5 @@ int main( int argc, char* argv[]) {
 
     return EXIT_SUCCESS;
 }
-
 
 

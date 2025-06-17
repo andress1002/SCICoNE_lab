@@ -72,33 +72,37 @@ void Utils::random_initialize_labels_map(std::map<u_int, int> &distinct_regions,
 }
 
 void Utils::read_counts(vector<vector<double>> &mat, const string &path) {
-
-    /*
-     * Parses the input data into a default filled double vector of vector.
-     * */
-
-    ifstream filein(path);
-
-    unsigned i = 0;
-    for (std::string line; std::getline(filein, line); )
-    {
-
-        std::istringstream fline(line);
-        std::string val;
-        int j = 0;
-        while (std::getline(fline, val, ','))
-        {
-            mat[i][j] = stod(val);
-            j++;
-        }
-        // assert(j == mat[i].size()); probabilities don't always sum up to one, we can get 1 column of empty bins here
-        i++;
+    std::ifstream filein(path);
+    if (!filein.is_open()) {
+        throw std::runtime_error("Could not open file: " + path);
     }
 
-    assert(i == mat.size());
+    std::string line;
+    size_t row_idx = 0;
 
+    while (std::getline(filein, line)) {
+        std::istringstream fline(line);
+        std::string val;
+        std::vector<double> row;
+        while (std::getline(fline, val, ',')) {
+            row.push_back(std::stod(val));
+        }
 
+        if (row_idx >= mat.size()) {
+            throw std::runtime_error("Too many rows in file: " + path);
+        }
+        if (row.size() != mat[row_idx].size()) {
+            throw std::runtime_error("Row " + std::to_string(row_idx) +
+                " in file " + path + " has unexpected number of columns.");
+        }
 
+        mat[row_idx] = std::move(row);
+        row_idx++;
+    }
+
+    if (row_idx != mat.size()) {
+        throw std::runtime_error("File " + path + " has too few rows.");
+    }
 }
 
 vector<vector<double>> Utils::condense_matrix(vector<vector<double>>& D, vector<int>& region_sizes) {
