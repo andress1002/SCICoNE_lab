@@ -42,7 +42,9 @@ double zinb_log_likelihood_objective(const std::vector<double> &x, std::vector<d
 
 std::pair<double, double> MathOp::fit_zinb_parameters(
     const std::vector<double>& values, 
-    double nu) {
+    double nu,
+    double prev_lambda,
+    double prev_pi) {
     
     try {
         ZINB_Fit_Data data = { values, nu };
@@ -66,11 +68,15 @@ std::pair<double, double> MathOp::fit_zinb_parameters(
     }
     catch (std::exception &e) {
         std::cerr << "NLopt failed: " << e.what() << std::endl;
-        
-        // Original fallback logic with hard-coded calculations
+        // Use previous parameters if available
+        if (prev_lambda > 0 && prev_pi > 0) {
+            std::cout << "Using previous window parameters: lambda=" << prev_lambda 
+                      << ", pi=" << prev_pi << std::endl;
+            return {prev_lambda, prev_pi};
+        }
+        // If not available, fallback to robust_mean and empirical pi
         double lambda_fallback = robust_mean(values);
         double pi_fallback = std::min(std::max((double)std::count(values.begin(), values.end(), 0) / values.size(), 0.01), 0.99);
-        
         std::cout << "Using fallback estimations: lambda=" << lambda_fallback 
                   << ", pi=" << pi_fallback << std::endl;
         return {lambda_fallback, pi_fallback};
@@ -139,6 +145,9 @@ LRResult MathOp::likelihood_ratio(std::vector<std::vector<double>> &mat,
 
     #pragma omp parallel for
     for (size_t j = 0; j < n_cells; ++j) {
+        double prev_lambda_all = -1.0, prev_pi_segment = -1.0;
+        double prev_lambda_l = -1.0, prev_pi_l = -1.0;
+        double prev_lambda_r = -1.0, prev_pi_r = -1.0;
         for (size_t r = 0; r < n_regions; ++r) {
             for (size_t i = known_breakpoints[r]; i < known_breakpoints[r+1]; ++i) {
                 int start = i - window_size, end = i + window_size;
@@ -153,12 +162,17 @@ LRResult MathOp::likelihood_ratio(std::vector<std::vector<double>> &mat,
                 double lambda_l = 0.0, lambda_r = 0.0, pi_l = 0.0, pi_r = 0.0;
 
                 if (mode == "RNA") {
-                    std::tie(lambda_all, pi_segment) = fit_zinb_parameters(all_bins, nu);
-                    std::tie(lambda_l, pi_l) = fit_zinb_parameters(lbins, nu);
-                    std::tie(lambda_r, pi_r) = fit_zinb_parameters(rbins, nu);
+                    std::tie(lambda_all, pi_segment) = fit_zinb_parameters(all_bins, nu, prev_lambda_all, prev_pi_segment);
+                    std::tie(lambda_l, pi_l) = fit_zinb_parameters(lbins, nu, prev_lambda_l, prev_pi_l);
+                    std::tie(lambda_r, pi_r) = fit_zinb_parameters(rbins, nu, prev_lambda_r, prev_pi_r);
                     ll_segment = breakpoint_log_likelihood_zinb(all_bins, lambda_all, nu, pi_segment);
                     ll_break = breakpoint_log_likelihood_zinb(lbins, lambda_l, nu, pi_l)
                              + breakpoint_log_likelihood_zinb(rbins, lambda_r, nu, pi_r);
+
+                    // Update previous parameters for next window
+                    prev_lambda_all = lambda_all; prev_pi_segment = pi_segment;
+                    prev_lambda_l = lambda_l; prev_pi_l = pi_l;
+                    prev_lambda_r = lambda_r; prev_pi_r = pi_r;
                 } else {
                     auto regression_parameters = compute_linear_regression_parameters(all_bins, window_size, nu);
                     double alpha = regression_parameters[0], beta = regression_parameters[1];
@@ -188,8 +202,8 @@ LRResult MathOp::likelihood_ratio(std::vector<std::vector<double>> &mat,
                 result.lr_vec[j][i] = 2 * (ll_break - ll_segment);
                 //store both results to decide downstream
 
-                result.lambda_mat_null[j][i] = lambda_r;
-                result.lambda_mat_break[j][i] = lambda_all;
+                result.lambda_mat_null[j][i] = lambda_all;
+                result.lambda_mat_break[j][i] = lambda_l;
                
             }
         }

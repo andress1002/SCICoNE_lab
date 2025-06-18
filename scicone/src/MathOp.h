@@ -101,7 +101,9 @@ public:
     static double estimate_zero_inflation_prob(const std::vector<double>& v);
     static std::pair<double, double> fit_zinb_parameters(
         const std::vector<double>& values, 
-        double nu);
+        double nu,
+        double prev_lambda = -1.0,
+        double prev_pi = -1.0);
 };
 
 
