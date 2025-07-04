@@ -33,8 +33,6 @@ typedef struct {
 
 struct LRResult {
     std::vector<std::vector<double>> lr_vec;      // Log-likelihood ratio matrix
-    std::vector<std::vector<double>> lambda_mat_null; // ZINB lambda values for each cell and bin (null model)
-    std::vector<std::vector<double>> lambda_mat_break; // ZINB lambda values for each cell and bin (breakpoint model)
 };
 
 struct ZINB_Fit_Data {
@@ -52,6 +50,7 @@ public:
 
     MathOp() = delete;
     virtual ~MathOp() = delete;
+    static double estimate_dispersion(const std::vector<std::vector<double>> &mat);
     static double breakpoint_log_likelihood(std::vector<double> v, double lambda, double nu);
     static long double log_add(long double val1, long double val2);
     static double log_sum(const map<int, double> &map); // map version
@@ -102,8 +101,9 @@ public:
     static std::pair<double, double> fit_zinb_parameters(
         const std::vector<double>& values, 
         double nu,
-        double prev_lambda = -1.0,
-        double prev_pi = -1.0);
+        double prev_lambda,
+        double prev_pi
+    );
 };
 
 

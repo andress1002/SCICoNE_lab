@@ -41,11 +41,6 @@ int main( int argc, char* argv[]) {
     string input_breakpoints_file;
     bool add_input_breakpoints = false;
     std::string mode = "DNA";
-    vector<vector<double>> lambda_mat_break;         // breakpoint model matrix
-    vector<vector<double>> lambda_mat_null;
-    
-        // null model matrix
-
 
     cxxopts::Options options("Breakpoint detection executable", "detects the breakpoints in the genome across all cells.");
     options.add_options()
@@ -156,12 +151,12 @@ int main( int argc, char* argv[]) {
       if (compute_lr)
         s_p = dsp.breakpoint_detection(
             d_bins, window_size, evidence_min_cells, input_breakpoints,
-            mode, lambda_mat_null, lambda_mat_break
+            mode
         );
       else
         s_p = dsp.breakpoint_detection(
             d_bins, window_size, evidence_min_cells, input_breakpoints,
-            mode, lambda_mat_null, lambda_mat_break, lr_vec, compute_lr
+            mode, lr_vec, compute_lr
         );
       std::cout<<"Computed probabilities for all regions."<<std::endl;
     }
@@ -372,61 +367,42 @@ int main( int argc, char* argv[]) {
     reg_sizes_file << ub+window_size - all_max_ids[all_max_ids.size()-1] << endl; // add the last one
 
     std::cout<<"Segmented region sizes are written to file"<<std::endl;
+    
+
 
     if (mode == "RNA") {
-        std::cout << "Generating smoothed matrix using final breakpoint calls..." << std::endl;
+        std::cout << "Smoothing by fitting ZINB per region..." << std::endl;
+        double nu = MathOp::estimate_dispersion(d_bins);
+        // Read region sizes
+        std::ifstream region_file("./" + f_name_posfix + "_segmented_region_sizes.txt");
+        std::vector<int> region_sizes;
+        int size;
+        while (region_file >> size)
+            region_sizes.push_back(size);
 
-        // Load both lambda matrices
-        vector<vector<double>> local_lambda_mat_break(n_cells, vector<double>(n_bins));
-        vector<vector<double>> local_lambda_mat_null(n_cells, vector<double>(n_bins));
-        Utils::read_counts(local_lambda_mat_break, "./" + f_name_posfix + "_lambda_mat_break.csv");
-        Utils::read_counts(local_lambda_mat_null, "./" + f_name_posfix + "_lambda_mat_null.csv");
+        std::vector<std::vector<double>> smoothed(n_cells, std::vector<double>(n_bins, 0.0));
 
-        std::cout << "lambda_mat_break shape: " << local_lambda_mat_break.size() << " x " << local_lambda_mat_break[0].size() << std::endl;
-        std::cout << "lambda_mat_null shape: " << local_lambda_mat_null.size() << " x " << local_lambda_mat_null[0].size() << std::endl;
-        
-        if (local_lambda_mat_break.size() != n_cells || local_lambda_mat_break[0].size() != n_bins) {
-            std::cerr << "lambda_mat_break dimensions do not match n_cells x n_bins!" << std::endl;
-            exit(EXIT_FAILURE);
-        }
-        if (local_lambda_mat_null.size() != n_cells || local_lambda_mat_null[0].size() != n_bins) {
-            std::cerr << "lambda_mat_null dimensions do not match n_cells x n_bins!" << std::endl;
-            exit(EXIT_FAILURE);
-        }
-            
+        size_t bin_start = 0;
+        for (size_t region = 0; region < region_sizes.size(); ++region) {
+            int region_len = region_sizes[region];
 
-        // Make a set of final breakpoints for fast lookup
-        std::unordered_set<int> breakpoint_bins;
-        for (auto idx : all_max_ids) {
-            breakpoint_bins.insert(idx + window_size); // +window_size to match written output
-        }
+            for (int cell = 0; cell < n_cells; ++cell) {
+                std::vector<double> region_bins(d_bins[cell].begin() + bin_start,
+                                                d_bins[cell].begin() + bin_start + region_len);
 
-        
-      if (local_lambda_mat_break.size() != d_bins.size() || local_lambda_mat_break[0].size() != d_bins[0].size()) {
-          std::cerr << "lambda_mat_break size mismatch!" << std::endl;
-          exit(EXIT_FAILURE);
-      }
-      if (local_lambda_mat_null.size() != d_bins.size() || local_lambda_mat_null[0].size() != d_bins[0].size()) {
-          std::cerr << "lambda_mat_null size mismatch!" << std::endl;
-          exit(EXIT_FAILURE);
-      }
-
-// Build smoothed matrix
-        vector<vector<double>> smoothed(n_cells, vector<double>(n_bins));
-        for (int cell = 0; cell < n_cells; ++cell) {
-            for (int bin = 0; bin < n_bins; ++bin) {
-                if (breakpoint_bins.count(bin) > 0) {
-                    smoothed[cell][bin] = local_lambda_mat_break[cell][bin];
-                } else {
-                    smoothed[cell][bin] = local_lambda_mat_null[cell][bin];
-                }
+                // Updated: pass -1.0, -1.0 for prev_lambda, prev_pi to use empirical fallback
+                auto [lambda, pi] = MathOp::fit_zinb_parameters(region_bins, nu, -1.0, -1.0);
+                // We use only lambda (mean), pi is ignored
+                for (int k = 0; k < region_len; ++k)
+                    smoothed[cell][bin_start + k] = lambda;
             }
+
+            bin_start += region_len;
         }
 
         // Write smoothed matrix
-        std::cout << "Writing smoothed matrix to file..." << std::endl;
         std::ofstream smoothed_file("./" + f_name_posfix + "_smoothed.csv");
-        for (const auto& row : smoothed) {
+        for (const auto &row : smoothed) {
             for (size_t j = 0; j < row.size(); ++j) {
                 smoothed_file << row[j];
                 if (j < row.size() - 1)
@@ -434,8 +410,11 @@ int main( int argc, char* argv[]) {
             }
             smoothed_file << "\n";
         }
-        std::cout << "Smoothed matrix written to './" + f_name_posfix + "_smoothed.csv'" << std::endl;
+        std::cout << "Region-level ZINB smoothing written to: ./" << f_name_posfix << "_smoothed.csv" << std::endl;
     }
+
+
+    std::cout << "Total number of breakpoints detected: " << all_max_ids.size() << std::endl;
 
     return EXIT_SUCCESS;
 }

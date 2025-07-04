@@ -277,15 +277,14 @@
         int k_star,
         vector<int> &known_breakpoints,
         std::string mode,
-        std::vector<std::vector<double>> &lambda_mat_null,
-        std::vector<std::vector<double>> &lambda_mat_break,
+
         bool compute_lr,
         bool lr_only
     ) {
         vector<vector<double>> lr_vec;
         return SignalProcessing::breakpoint_detection(
             mat, window_size, k_star, known_breakpoints,
-            mode, lambda_mat_null, lambda_mat_break, lr_vec, compute_lr, lr_only
+            mode, lr_vec, compute_lr, lr_only
         );
     }
 
@@ -296,8 +295,6 @@
         int k_star,
         vector<int> &known_breakpoints,
         std::string mode,
-        std::vector<std::vector<double>> &lambda_mat_null,
-        std::vector<std::vector<double>> &lambda_mat_break,
         vector<vector<double>> &lr_vec,
         bool compute_lr,
         bool lr_only
@@ -319,32 +316,10 @@
     if (compute_lr) {
         LRResult lr_result = MathOp::likelihood_ratio(mat, window_size, known_breakpoints, mode);
         lr_vec = lr_result.lr_vec;
-
-        if (mode == "RNA") {
-            lambda_mat_null = lr_result.lambda_mat_null;
-            lambda_mat_break = lr_result.lambda_mat_break;
-
-            std::ofstream lambda_null_file("./" + f_name_posfix + "_lambda_mat_null.csv");
-            std::ofstream lambda_break_file("./" + f_name_posfix + "_lambda_mat_break.csv");
-
-            for (size_t j = 0; j < n_cells; ++j) {
-                for (size_t i = 0; i < n_bins; ++i) {
-                    lambda_null_file << lambda_mat_null[j][i];
-                    lambda_break_file << lambda_mat_break[j][i];
-                    if (i < n_bins - 1) {
-                        lambda_null_file << ",";
-                        lambda_break_file << ",";
-                    }
-                }
-                lambda_null_file << "\n";
-                lambda_break_file << "\n";
-            }
-        }
     }
-
-        else {
-            std::cout << "Skipping LR computation" << std::endl;
-        }
+    else {
+        std::cout << "Skipping LR computation" << std::endl;
+    }
 
         if (verbosity > 0)
         {

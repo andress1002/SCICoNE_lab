@@ -71,7 +71,7 @@ void test_breakpoint_detection(const std::string& bp_detection_dir)
 
     vector<double> s_p = dsp.breakpoint_detection(
         d_bins, window_size, evidence_min_cells, input_breakpoints,
-        mode, lambda_mat_null, lambda_mat_break
+        mode
     );
 
     double sum_sp = std::accumulate(s_p.begin(), s_p.end(), 0.0);

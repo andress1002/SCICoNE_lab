@@ -8,6 +8,7 @@
 #include "MathOp.h"
 #include <vector>
 #include <fstream>
+#include <string>
 
 using namespace std;
 
@@ -32,26 +33,22 @@ public:
     vector<bool> filter_by_val(vector<double> &signal, double val);
     vector<int> create_region_sizes(vector<bool> peaks);
 
-    vector<double> breakpoint_detection(
+    static vector<double> breakpoint_detection(
         vector<vector<double>> &mat,
         int window_size,
         int k_star,
         vector<int> &known_breakpoints,
         std::string mode,
-        std::vector<std::vector<double>> &lambda_mat_null,
-        std::vector<std::vector<double>> &lambda_mat_break,
         bool compute_lr = true,
         bool lr_only = false
     );
   
-    vector<double> breakpoint_detection(
+    static vector<double> breakpoint_detection(
         vector<vector<double>> &mat,
         int window_size,
         int k_star,
         vector<int> &known_breakpoints,
         std::string mode,
-        std::vector<std::vector<double>> &lambda_mat_null,
-        std::vector<std::vector<double>> &lambda_mat_break,
         vector<vector<double>> &lr_vec,
         bool compute_lr = true,
         bool lr_only = false
