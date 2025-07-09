@@ -59,8 +59,8 @@ double zinb_log_likelihood_objective(unsigned n, const double *x, double *grad, 
     const auto& v = d->values;
     double nu = d->nu;
 
-    double lambda = std::max(x[0], 1e-5);
-    double pi     = std::min(std::max(x[1], 1e-5), 0.999);
+    double lambda = x[0];
+    double pi     = x[1];
 
     double loglik = 0.0;
     for (double val : v) {
