@@ -30,21 +30,45 @@ double MathOp::estimate_dispersion(const std::vector<std::vector<double>> &mat) 
     return pow(mean, 2) / moment2;
 }
 
+//dispersion estimation for ZINB model 
+double MathOp::estimate_dispersion_zinb(const std::vector<std::vector<double>> &mat) {
+    std::vector<double> values;
+    for (const auto& row : mat)
+        values.insert(values.end(), row.begin(), row.end());
+
+    double mu = vec_avg(values);
+    double sigma2 = 0.0;
+    for (double x : values) sigma2 += pow(x - mu, 2);
+    sigma2 /= values.size();
+
+    double prop_zeros = std::count(values.begin(), values.end(), 0) / (double)values.size();
+
+    // Adjust for zero-inflation: Var = π(1−π)μ² + (1−π)(μ + μ²/ν)
+    double var_adj = sigma2 - prop_zeros * (1 - prop_zeros) * mu * mu;
+
+    if (var_adj < mu) var_adj = mu + 1e-3; // prevent negative denominator
+
+    double nu = mu * mu / (var_adj - mu);
+    return std::max(nu, 1e-3);
+}
+
+
 // === ZINB fitting ===
-double zinb_log_likelihood_objective(const std::vector<double> &x, std::vector<double> &grad, void *data_ptr) {
+double zinb_log_likelihood_objective(unsigned n, const double *x, double *grad, void *data_ptr) {
     ZINB_Fit_Data* d = reinterpret_cast<ZINB_Fit_Data*>(data_ptr);
     const auto& v = d->values;
     double nu = d->nu;
+
     double lambda = std::max(x[0], 1e-5);
-    double pi = std::min(std::max(x[1], 1e-5), 0.999);
+    double pi     = std::min(std::max(x[1], 1e-5), 0.999);
+
     double loglik = 0.0;
-    for (double val : v) loglik += MathOp::breakpoint_log_likelihood_zinb({val}, lambda, nu, pi);
+    for (double val : v) {
+        loglik += MathOp::breakpoint_log_likelihood_zinb({val}, lambda, nu, pi);
+    }
+    std::cout << "[ZINB LL] lambda=" << lambda << ", pi=" << pi << std::endl;
 
-    // Penalize low lambda (mean expression)
-    double beta = 1.0; // Tune this value as needed (start small, e.g. 0.1 or 1.0)
-    double penalty = beta * std::max(0.0, 1.0 - lambda); // Penalize lambda < 1.0
-
-    return -loglik + penalty;
+    return -loglik;
 }
 
 std::pair<double, double> MathOp::fit_zinb_parameters(
@@ -58,16 +82,30 @@ std::pair<double, double> MathOp::fit_zinb_parameters(
         nlopt::opt opt(nlopt::LN_BOBYQA, 2);
         opt.set_min_objective(zinb_log_likelihood_objective, &data);
         opt.set_xtol_rel(1e-6);
-        opt.set_maxeval(200);
-        std::vector<double> x = {
-            std::max(vec_avg(values), 1e-3),
-            std::min(std::max((double)std::count(values.begin(), values.end(), 0) / values.size(), 0.01), 0.99)
-        };
-        opt.set_lower_bounds({1e-5, 1e-5});
-        opt.set_upper_bounds({1000.0, 0.999});
+        opt.set_maxeval(500);
+        
+        // Improved initialization logic
+        double empirical_pi = (double)std::count(values.begin(), values.end(), 0) / values.size();
+        empirical_pi = std::min(std::max(empirical_pi, 0.05), 0.99);  
+
+        double empirical_lambda = vec_avg(values);
+        if (empirical_lambda < 1e-3) empirical_lambda = 1e-3;
+
+        // Optional: encourage π for ultra-low λ
+        if (empirical_lambda < 0.05)
+            empirical_pi = std::max(empirical_pi, 0.2);
+
+        std::vector<double> x = {empirical_lambda, empirical_pi};
+        
+        // Set bounds to prevent π going to 0
+        opt.set_lower_bounds({1e-4, 0.01}); 
+        opt.set_upper_bounds({1000.0, 0.99});
+        
         double minf;
         opt.optimize(x, minf);
-        
+        std::cout << "Fitted λ = " << x[0] << ", π = " << x[1] << std::endl;
+        std::cout << "Final objective = " << minf << std::endl;
+
         double opt_lambda = x[0];
         double opt_pi = x[1];
         
@@ -83,7 +121,13 @@ std::pair<double, double> MathOp::fit_zinb_parameters(
         }
         // If not available, fallback to robust_mean and empirical pi
         double lambda_fallback = robust_mean(values);
-        double pi_fallback = std::min(std::max((double)std::count(values.begin(), values.end(), 0) / values.size(), 0.01), 0.99);
+        double empirical_pi_fallback = (double)std::count(values.begin(), values.end(), 0) / values.size();
+        double pi_fallback = std::min(std::max(empirical_pi_fallback, 0.05), 0.99);
+        
+        // Apply same ultra-low lambda logic to fallback
+        if (lambda_fallback < 0.05)
+            pi_fallback = std::max(pi_fallback, 0.2);
+            
         std::cout << "Using fallback estimations: lambda=" << lambda_fallback 
                   << ", pi=" << pi_fallback << std::endl;
         return {lambda_fallback, pi_fallback};
@@ -148,7 +192,7 @@ LRResult MathOp::likelihood_ratio(std::vector<std::vector<double>> &mat,
                                int window_size, 
                                std::vector<int> &known_breakpoints,
                                const std::string &mode) {
-    double nu = estimate_dispersion(mat);
+    double nu = (mode == "RNA") ? estimate_dispersion_zinb(mat) : estimate_dispersion(mat);
     std::cout << "Method of moments estimated nu=" << nu << std::endl;
 
     size_t n_bins = mat[0].size(), n_regions = known_breakpoints.size() - 1, n_cells = mat.size();
@@ -157,20 +201,20 @@ LRResult MathOp::likelihood_ratio(std::vector<std::vector<double>> &mat,
     
 
     #pragma omp parallel for
-for (size_t j = 0; j < n_cells; ++j) {
-    double prev_lambda_all = -1.0, prev_pi_segment = -1.0;
-    for (size_t r = 0; r < n_regions; ++r) {
-        for (size_t i = known_breakpoints[r]; i < known_breakpoints[r+1]; ++i) {
-            int start = i - window_size, end = i + window_size;
-            if (start < 0 || end >= (int)n_bins) continue;
+    for (size_t j = 0; j < n_cells; ++j) {
+        double prev_lambda_all = -1.0, prev_pi_segment = -1.0;
+        for (size_t r = 0; r < n_regions; ++r) {
+            for (size_t i = known_breakpoints[r]; i < known_breakpoints[r+1]; ++i) {
+                int start = i - window_size, end = i + window_size;
+                if (start < 0 || end >= (int)n_bins) continue;
 
-            auto lbins = std::vector<double>(mat[j].begin() + start, mat[j].begin() + i);
-            auto rbins = std::vector<double>(mat[j].begin() + i, mat[j].begin() + end);
-            auto all_bins = std::vector<double>(mat[j].begin() + start, mat[j].begin() + end);
+                auto lbins = std::vector<double>(mat[j].begin() + start, mat[j].begin() + i);
+                auto rbins = std::vector<double>(mat[j].begin() + i, mat[j].begin() + end);
+                auto all_bins = std::vector<double>(mat[j].begin() + start, mat[j].begin() + end);
 
-            double ll_segment = 0.0, ll_break = 0.0;
-            double lambda_all = 0.0, pi_segment = 0.0;
-            double lambda_l = 0.0, lambda_r = 0.0, pi_l = 0.0, pi_r = 0.0;
+                double ll_segment = 0.0, ll_break = 0.0;
+                double lambda_all = 0.0, pi_segment = 0.0;
+                double lambda_l = 0.0, lambda_r = 0.0, pi_l = 0.0, pi_r = 0.0;
 
             if (mode == "RNA") {
                 // Warm start for all_bins, not for lbins/rbins
@@ -212,6 +256,18 @@ for (size_t j = 0; j < n_cells; ++j) {
             }
 
             result.lr_vec[j][i] = 2 * (ll_break - ll_segment);
+
+            if (j == 37 && i >= 0 && i <= 20) {
+            #pragma omp critical
+            {
+                std::cout << "Bin " << i << ":\n";
+                std::cout << "  LRT penalized = " << result.lr_vec[j][i] << "\n";
+                std::cout << "  λ_all = " << lambda_all << ", π_all = " << pi_segment << "\n";
+                std::cout << "  λ_l   = " << lambda_l << ", π_l   = " << pi_l << "\n";
+                std::cout << "  λ_r   = " << lambda_r << ", π_r   = " << pi_r << "\n";
+                std::cout << "  ll_segment = " << ll_segment << ", ll_break = " << ll_break << "\n";
+            }
+        }
         }
     }
 }

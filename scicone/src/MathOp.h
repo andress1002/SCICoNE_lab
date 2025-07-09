@@ -51,6 +51,7 @@ public:
     MathOp() = delete;
     virtual ~MathOp() = delete;
     static double estimate_dispersion(const std::vector<std::vector<double>> &mat);
+    static double estimate_dispersion_zinb(const std::vector<std::vector<double>> &mat);
     static double breakpoint_log_likelihood(std::vector<double> v, double lambda, double nu);
     static long double log_add(long double val1, long double val2);
     static double log_sum(const map<int, double> &map); // map version
