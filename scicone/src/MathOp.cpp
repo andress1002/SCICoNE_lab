@@ -126,9 +126,6 @@ std::pair<double, double> MathOp::fit_zinb_parameters(
         double empirical_pi_fallback = (double)std::count(values.begin(), values.end(), 0) / values.size();
         double pi_fallback = std::min(std::max(empirical_pi_fallback, 0.05), 0.99);
         
-        // Apply same ultra-low lambda logic to fallback
-        if (lambda_fallback < 0.05)
-            pi_fallback = std::max(pi_fallback, 0.2);
             
         std::cout << "Using fallback estimations: lambda=" << lambda_fallback 
                   << ", pi=" << pi_fallback << std::endl;
