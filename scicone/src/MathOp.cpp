@@ -66,7 +66,8 @@ double zinb_log_likelihood_objective(unsigned n, const double *x, double *grad, 
     for (double val : v) {
         loglik += MathOp::breakpoint_log_likelihood_zinb({val}, lambda, nu, pi);
     }
-    std::cout << "[ZINB LL] lambda=" << lambda << ", pi=" << pi << std::endl;
+    //debug cout
+    //std::cout << "[ZINB LL] lambda=" << lambda << ", pi=" << pi << std::endl;
 
     return -loglik;
 }
