@@ -264,7 +264,7 @@ for (size_t j = 0; j < n_cells; ++j) {
         // #pragma omp critical
         // {
         //     std::cout << "Bin " << i << ":\n";
-        //     std::cout << "  LRT penalized = " << result.lr_vec[j][i] << "\n";
+        //     std::cout << "  LRT = " << result.lr_vec[j][i] << "\n";
         //     std::cout << "  λ_all = " << lambda_all << ", π_all = " << pi_segment << "\n";
         //     std::cout << "  λ_l   = " << lambda_l << ", π_l   = " << pi_l << "\n";
         //     std::cout << "  λ_r   = " << lambda_r << ", π_r   = " << pi_r << "\n";

@@ -348,7 +348,7 @@
         vector<double> log_priors;
         log_priors.reserve(n_cells+1);
         for (size_t j = 0; j < n_cells+1; ++j)
-            log_priors.push_back(MathOp::breakpoint_log_prior(j, n_cells,0.001));
+            log_priors.push_back(MathOp::breakpoint_log_prior(j, n_cells,0.05));
 
         vector<vector<double>> log_posterior(n_breakpoints,vector<double>(n_cells+1));
         for (size_t k = 0; k < n_breakpoints; ++k) {
@@ -400,7 +400,7 @@
                 sp_num_total = log(sp_num_total) + max_local;
 
             double sp_val = sp_denom - sp_num_total;
-
+            
             s_p[l] = sp_val;
 
         }
