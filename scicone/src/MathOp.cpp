@@ -309,48 +309,61 @@ long double MathOp::log_add(long double val1, long double val2)
 
 
 
-vector<double> MathOp::combine_scores(vector<double> aic_vec)
+std::vector<double> MathOp::combine_scores(std::vector<double> aic_vec)
 {
-
     /*
      * Combines cells.
      * Computes the combined evidence that the breakpoint occurred in any k of m cells.
-     * Uses dynamic programming.
-     *
-     * */
+     * Uses dynamic programming with log-space for numerical stability.
+     */
+
     u_int m = aic_vec.size();
-    vector<double> row1(m, 0.0);
-    vector<double> row2;
-    vector<double> res(1,0.0);
+    std::vector<double> row1(m, 0.0);
+    std::vector<double> row2;
+    std::vector<double> res(1, 0.0);  // log posterior for k=0
 
-    // iterate over n_cells
-    for (u_int j = 0; j < m; ++j) { // j : cells
+    for (u_int j = 0; j < m; ++j) {  // j : number of included cells
         row2.clear();
-        // inner computation of row2
-        for (u_int k = 0; k < m-j; ++k) {
-            double value=0.0;
 
-            if (k==0)
-                value = row1[k] + aic_vec[k+j];
-            else
-                value = static_cast<double>(log_add(row2[k-1] , row1[k] + aic_vec[k+j]));
+        for (u_int k = 0; k < m - j; ++k) {
+            double sum = row1[k] + aic_vec[k + j];
 
-            if (std::isinf(value))
-                cerr << "inf value detected";
+            if (!std::isfinite(sum)) {
+                std::cerr << "[combine_scores] non-finite sum at j=" << j
+                          << ", k=" << k
+                          << ", row1[k]=" << row1[k]
+                          << ", aic_vec[k+j]=" << aic_vec[k + j]
+                          << std::endl;
+                sum = -INFINITY;  // skip this path
+            }
+
+            // Inline log_add implementation
+            double value;
+            if (k == 0) {
+                value = sum;
+            } else {
+                double log_a = row2[k - 1];
+                double log_b = sum;
+
+                if (log_a == -INFINITY) value = log_b;
+                else if (log_b == -INFINITY) value = log_a;
+                else if (!std::isfinite(log_a) || !std::isfinite(log_b)) {
+                    std::cerr << "[combine_scores] non-finite log_add inputs at j=" << j
+                              << ", k=" << k << std::endl;
+                    value = -INFINITY;
+                } else {
+                    double max_val = std::max(log_a, log_b);
+                    value = max_val + std::log1p(std::exp(-std::fabs(log_a - log_b)));
+                }
+            }
 
             row2.push_back(value);
-
         }
-        row1.clear();
+
         row1 = row2;
-        double last = row2.back();
-        last -= log_n_choose_k(m,j);
-
-        res.push_back(last);
-
+        double last = row2.back() - MathOp::log_n_choose_k(m, j);
+        res.push_back(last);  // log posterior for k = j + 1
     }
-
-
 
     return res;
 }
