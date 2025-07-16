@@ -313,13 +313,12 @@
 
         // compute the LR scores
 
-    if (compute_lr) {
-        LRResult lr_result = MathOp::likelihood_ratio(mat, window_size, known_breakpoints, mode);
-        lr_vec = lr_result.lr_vec;
-    }
-    else {
-        std::cout << "Skipping LR computation" << std::endl;
-    }
+        if (compute_lr) {
+            lr_vec = MathOp::likelihood_ratio(mat, window_size, known_breakpoints, mode); // <-- changed, no LRResult
+        }
+        else {
+            std::cout << "Skipping LR computation" << std::endl;
+        }
 
         if (verbosity > 0)
         {
@@ -386,15 +385,12 @@
             expected_k_vector[l] = log_expected_cells;
 
             double max_local = *max_element(log_posterior[l].begin(), log_posterior[l].begin() + k_star - 1);
-    //        double max_local_ub = *max_element(log_posterior[l].begin() + ul, log_posterior[l].end());
 
-    //        double max_local = std::max(max_local, max_local_ub);
             for (int j = 0; j < log_posterior[l].size(); ++j) {
                 posterior[l][j] = exp(log_posterior[l][j] - max_local);
             }
 
             double sp_num_total = std::accumulate(posterior[l].begin(), posterior[l].begin() + k_star - 1, 0.0);
-    //        double sp_num_ub =  std::accumulate(posterior[l].begin() + ul, posterior[l].end(), 0.0);
 
             if (sp_num_total != 0.0)
                 sp_num_total = log(sp_num_total) + max_local;

@@ -31,10 +31,6 @@ typedef struct {
     double nu;
 } segment_counts;
 
-struct LRResult {
-    std::vector<std::vector<double>> lr_vec;      // Log-likelihood ratio matrix
-};
-
 struct ZINB_Fit_Data {
     std::vector<double> values;
     double nu;
@@ -59,10 +55,10 @@ public:
     static double log_replace_sum(const double &sum, const vector<double> &to_subtract, const vector<double> &to_add,
                                      const map<int, double> &unchanged_vals);
     static vector<double> combine_scores(vector<double> aic_vec);
-    static LRResult likelihood_ratio(std::vector<std::vector<double>> &mat,
-                                 int window_size,
-                                 std::vector<int> &known_breakpoints,
-                                 const std::string &mode = "DNA");
+    static vector<vector<double>> likelihood_ratio(std::vector<std::vector<double>> &mat,
+                                               int window_size,
+                                               std::vector<int> &known_breakpoints,
+                                               const std::string &mode = "DNA");
     static double breakpoint_log_prior(int k, int m, double mu);
     static double compute_linear_regression_slope(const vector<double>& x, const vector<double>& y);
     static double log_n_choose_k(unsigned long n, unsigned long k);
