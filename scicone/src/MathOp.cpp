@@ -86,8 +86,9 @@ std::pair<double, double> MathOp::fit_zinb_parameters(
         opt.set_maxeval(500);
         
         // Improved initialization logic
-        double empirical_pi = (double)std::count(values.begin(), values.end(), 0) / values.size();
-        empirical_pi = std::min(std::max(empirical_pi, 0.05), 0.99);  
+        double zero_count = static_cast<double>(std::count(values.begin(), values.end(), 0));
+        double empirical_pi = (zero_count + 1.0) / (values.size() + 2.0);
+        empirical_pi = std::min(std::max(empirical_pi, 0.001), 0.999);
 
         double empirical_lambda = vec_avg(values);
         if (empirical_lambda < 1e-3) empirical_lambda = 1e-3;
@@ -99,8 +100,8 @@ std::pair<double, double> MathOp::fit_zinb_parameters(
         std::vector<double> x = {empirical_lambda, empirical_pi};
         
         // Set bounds to prevent π going to 0
-        opt.set_lower_bounds({1e-4, 0.01}); 
-        opt.set_upper_bounds({1000.0, 0.99});
+        opt.set_lower_bounds({1e-4, 0.001}); 
+        opt.set_upper_bounds({1000.0, 0.999});
         
         double minf;
         opt.optimize(x, minf);
@@ -109,10 +110,10 @@ std::pair<double, double> MathOp::fit_zinb_parameters(
         //std::cout << "Fitted λ = " << x[0] << ", π = " << x[1] << std::endl;
         //std::cout << "Final objective = " << minf << std::endl;
 
-        double opt_lambda = x[0];
-        double opt_pi = x[1];
-        
-        return {opt_lambda, opt_pi};
+        double fitted_lambda = x[0];
+        double fitted_pi = x[1];
+
+        return {fitted_lambda, fitted_pi};
     }
     catch (std::exception &e) {
         std::cerr << "NLopt failed: " << e.what() << std::endl;
@@ -197,9 +198,9 @@ vector<vector<double>> MathOp::likelihood_ratio(
     double nu = (mode == "RNA") ? estimate_dispersion_zinb(mat) : estimate_dispersion(mat);
 
     if (mode == "RNA") {
-        std::cout << "[RNA] Used ZINB dispersion estimation (see estimate_dispersion_zinb): nu=" << nu << std::endl;
+        std::cout << "[RNA] ZINB dispersion estimation: nu=" << nu << std::endl;
     } else {
-        std::cout << "Method of moments estimated nu=" << nu << std::endl;
+        std::cout << "[DNA] Method of moments estimated nu=" << nu << std::endl;
     }
 
     size_t n_bins = mat[0].size(), n_regions = known_breakpoints.size() - 1, n_cells = mat.size();
@@ -223,8 +224,37 @@ vector<vector<double>> MathOp::likelihood_ratio(
 
                 if (mode == "RNA") {
                     std::tie(lambda_all, pi_segment) = fit_zinb_parameters(all_bins, nu, prev_lambda_all, prev_pi_segment);
-                    std::tie(lambda_l, pi_l) = fit_zinb_parameters(lbins, nu, -1.0, -1.0);
-                    std::tie(lambda_r, pi_r) = fit_zinb_parameters(rbins, nu, -1.0, -1.0);
+                    std::tie(lambda_l, pi_l) = fit_zinb_parameters(lbins, nu, lambda_all, pi_segment);
+                    std::tie(lambda_r, pi_r) = fit_zinb_parameters(rbins, nu,  lambda_all, pi_segment);
+
+                    // Clamp segment parameters to be between left and right
+                    lambda_all = std::max(lambda_all, std::min(lambda_l, lambda_r));
+                    lambda_all = std::min(lambda_all, std::max(lambda_l, lambda_r));
+                    pi_segment = std::max(pi_segment, std::min(pi_l, pi_r));
+                    pi_segment = std::min(pi_segment, std::max(pi_l, pi_r));
+
+                    // Gap lambda check
+                    if (lambda_r > lambda_l) {
+                        double gap = lambda_r - lambda_l;
+                        double gap_thres = lambda_all / 4.0;
+                        double scaling = std::max(lambda_all / (4.0 * gap), 1.0);
+                        if (gap < gap_thres) {
+                            lambda_r = lambda_all + scaling * (lambda_r - lambda_all);
+                            lambda_l = lambda_all - scaling * (lambda_all - lambda_l);
+                        }
+                    } else if (lambda_r < lambda_l) {
+                        double gap = lambda_l - lambda_r;
+                        double gap_thres = lambda_all / 4.0;
+                        double scaling = std::max(lambda_all / (4.0 * gap), 1.0);
+                        if (gap < gap_thres) {
+                            lambda_l = lambda_all + scaling * (lambda_l - lambda_all);
+                            lambda_r = lambda_all - scaling * (lambda_all - lambda_r);
+                        }
+                    }
+                    if (lambda_r == 0)
+                        lambda_r = 0.0001;
+                    if (lambda_l == 0)
+                        lambda_l = 0.0001;
 
                     ll_segment = breakpoint_log_likelihood_zinb(all_bins, lambda_all, nu, pi_segment);
                     ll_break = breakpoint_log_likelihood_zinb(lbins, lambda_l, nu, pi_l)
@@ -232,6 +262,7 @@ vector<vector<double>> MathOp::likelihood_ratio(
 
                     prev_lambda_all = lambda_all;
                     prev_pi_segment = pi_segment;
+                    
                 } else {
                     auto regression_parameters = compute_linear_regression_parameters(all_bins, window_size, nu);
                     double alpha = regression_parameters[0], beta = regression_parameters[1];
@@ -245,16 +276,33 @@ vector<vector<double>> MathOp::likelihood_ratio(
                     lambda_r = robust_mean(rbins);
                     lambda_all = vec_avg(all_bins);
 
-                    double gap = fabs(lambda_r - lambda_l);
-                    double gap_thres = lambda_all / 4.0;
-                    double scaling = std::max(lambda_all / (4.0 * gap), 1.0);
-                    if (gap < gap_thres) {
-                        lambda_r = lambda_all + scaling * (lambda_r - lambda_all);
-                        lambda_l = lambda_all - scaling * (lambda_all - lambda_l);
-                    }
+                    // make sure lambda_all is between the left and right bounds
+                    lambda_all = std::max(lambda_all, std::min(lambda_r, lambda_l));
+                    lambda_all = std::min(lambda_all, std::max(lambda_r, lambda_l));
 
-                    lambda_r = std::max(lambda_r, 0.00001);
-                    lambda_l = std::max(lambda_l, 0.00001);
+                    // The distance between the left and right segments must be > lambda_all/4, so we update the
+                    // segments accordingly
+                    if (lambda_r > lambda_l) {
+                        double gap = lambda_r - lambda_l;
+                        double gap_thres = lambda_all/4.0;
+                        double scaling = std::max(lambda_all/(4.0*gap), 1.0);
+                        if (gap < gap_thres) {
+                            lambda_r = lambda_all + scaling*(lambda_r-lambda_all);
+                            lambda_l = lambda_all - scaling*(lambda_all-lambda_l);
+                        }
+                    } else if (lambda_r < lambda_l) {
+                        double gap = lambda_l - lambda_r;
+                        double gap_thres = lambda_all/4.0;
+                        double scaling = std::max(lambda_all/(4.0*gap), 1.0);
+                        if (gap < gap_thres) {
+                            lambda_l = lambda_all + scaling*(lambda_l-lambda_all);
+                            lambda_r = lambda_all - scaling*(lambda_all-lambda_r);
+                        }
+                    }
+                    if (lambda_r == 0)
+                        lambda_r = 0.0001;
+                    if (lambda_l == 0)
+                        lambda_l = 0.0001;
                     ll_break = breakpoint_log_likelihood(lbins, lambda_l, nu) + breakpoint_log_likelihood(rbins, lambda_r, nu);
                 }
 

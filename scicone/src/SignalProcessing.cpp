@@ -196,7 +196,7 @@
 
         // use log of max_val
         max_val = log(max_val);
-
+        //std::cout << "max_val: " << max_val << ", range: " << range << ", threshold: " << threshold << std::endl;
         if (range == 0) // reject the breakpoint if stdev is zero
             return -1;
 

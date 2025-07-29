@@ -54,7 +54,7 @@ int main( int argc, char* argv[]) {
             ("verbosity", "verbosity", cxxopts::value(verbosity))
             ("bp_limit","the maximum number of breakpoints to be returned. The breakpoints get sorted and the top ones are returned",cxxopts::value(breakpoints_limit)->default_value(to_string(breakpoints_limit)))
             ("bp_min","the minimum number of breakpoints to be returned.",cxxopts::value(breakpoints_min_limit)->default_value(to_string(breakpoints_min_limit)))
-            ("compute_lr","Boolean indicator of wether the per bin cell-wise breakpoint evidence should be computed (true) or if a file is passed (false)",cxxopts::value<bool>(compute_lr)->default_value(to_string(compute_lr)))
+            ("compute_lr","Boolean indicator of wether the per bin threcell-wise breakpoint evidence should be computed (true) or if a file is passed (false)",cxxopts::value<bool>(compute_lr)->default_value(to_string(compute_lr)))
             ("lr_file","Path to a matrix containing the evidence for breakpoint at each bin in each cell.",cxxopts::value(lr_file))
             ("sp_file","Path to a vector containing the combined evidence for breakpoint at each bin across all cells.",cxxopts::value(sp_file))
             ("compute_sp","Boolean indicator of wether the per bin breakpoint evidence should be computed (true) or if a file is passed (false)",cxxopts::value<bool>(compute_sp)->default_value(to_string(compute_sp)))
