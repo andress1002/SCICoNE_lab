@@ -273,13 +273,12 @@ class SCICoNE(object):
                     if not self.persistence:
                         os.remove(fn)
 
-    
-            if mode == "RNA":
-                if 'smoothed' in output:
-                    if self.verbose:
-                        print("smoothed matrix successfully loaded.")
-                else:
-                    print("Warning: smoothed matrix not found. Ensure C++ writes it to disk.")
+            # Validate presence of smoothed counts matrix
+            if 'smoothed' in output:
+                if self.verbose:
+                    print("smoothed matrix successfully loaded.")
+            else:
+                print("Warning: smoothed matrix not found. Ensure C++ writes it to disk.")
         except OSError as e:
             print("OSError: ", e.output, e.stdout, e.stderr)
             

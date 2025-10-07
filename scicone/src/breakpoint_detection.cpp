@@ -41,6 +41,9 @@ int main( int argc, char* argv[]) {
     string input_breakpoints_file;
     bool add_input_breakpoints = false;
     std::string mode = "DNA";
+    vector<vector<double>> lambda_mat_break;         // breakpoint model matrix
+    vector<vector<double>> lambda_mat_null;         // null model matrix
+    vector<vector<double>> lambda_mat_win;         // winning model matrix
 
     cxxopts::Options options("Breakpoint detection executable", "detects the breakpoints in the genome across all cells.");
     options.add_options()
@@ -151,12 +154,12 @@ int main( int argc, char* argv[]) {
       if (compute_lr)
         s_p = dsp.breakpoint_detection(
             d_bins, window_size, evidence_min_cells, input_breakpoints,
-            mode
+            mode, lambda_mat_null, lambda_mat_break, lambda_mat_win
         );
       else
         s_p = dsp.breakpoint_detection(
             d_bins, window_size, evidence_min_cells, input_breakpoints,
-            mode, lr_vec, compute_lr
+            mode, lambda_mat_null, lambda_mat_break, lambda_mat_win, lr_vec, compute_lr
         );
       std::cout<<"Computed probabilities for all regions."<<std::endl;
     }
@@ -312,7 +315,7 @@ int main( int argc, char* argv[]) {
 
 
                   all_max_ids.push_back(max_idx);
-                  std::cout << "Index of the maximum " << max_idx << " is added to all_max_ids." << std::endl;
+                  //std::cout << "Index of the maximum " << max_idx << " is added to all_max_ids." << std::endl;
 
                   if (all_max_ids.size() >= breakpoints_limit)
                   {
@@ -369,7 +372,7 @@ int main( int argc, char* argv[]) {
     std::cout<<"Segmented region sizes are written to file"<<std::endl;
     
 
-
+//
     if (mode == "RNA") {
         std::cout << "Smoothing by fitting ZINB per region..." << std::endl;
         double nu = MathOp::estimate_dispersion(d_bins);
@@ -413,10 +416,162 @@ int main( int argc, char* argv[]) {
         std::cout << "Region-level ZINB smoothing written to: ./" << f_name_posfix << "_smoothed.csv" << std::endl;
     }
 
+    /////
+
+    //   if (mode == "RNA") {
+    //   std::cout << "[SMOOTH] Starting EB smoothing per region..." << std::endl;
+
+    //   // --- Step 1: read region sizes
+    //   std::ifstream region_file("./" + f_name_posfix + "_segmented_region_sizes.txt");
+    //   std::vector<int> region_sizes;
+    //   int size;
+    //   while (region_file >> size) {
+    //       region_sizes.push_back(size);
+    //   }
+    //   region_file.close();
+
+    //   if (region_sizes.empty()) {
+    //       std::cerr << "[ERROR] region_sizes file is empty or missing!" << std::endl;
+    //   } else {
+    //       int total_bins = std::accumulate(region_sizes.begin(), region_sizes.end(), 0);
+    //       std::cout << "[DEBUG] Loaded " << region_sizes.size() << " regions, sum = " 
+    //                 << total_bins << ", expected n_bins = " << n_bins << std::endl;
+    //       if (total_bins != n_bins) {
+    //           std::cerr << "[WARN] region_sizes sum != n_bins, smoothing may misalign!" << std::endl;
+    //       }
+    //   }
+
+    //   // --- Step 2: compute library size factors
+    //   std::vector<double> libsize(n_cells, 0.0);
+    //   for (size_t i = 0; i < n_cells; ++i) {
+    //       for (size_t b = 0; b < n_bins; ++b) libsize[i] += d_bins[i][b];
+    //   }
+    //   std::vector<double> tmp = libsize;
+    //   std::sort(tmp.begin(), tmp.end());
+    //   double median_lib = tmp[tmp.size() / 2];
+    //   std::vector<double> size_factor(n_cells, 1.0);
+    //   for (size_t i = 0; i < n_cells; ++i) {
+    //       if (median_lib > 0.0) size_factor[i] = libsize[i] / median_lib;
+    //       if (size_factor[i] <= 0.0) size_factor[i] = 1.0;
+    //   }
+
+    //   std::cout << "[SMOOTH] Median libsize = " << median_lib << std::endl;
+
+    //   // --- Step 3: smoothing
+    //   std::vector<std::vector<double>> smoothed(n_cells, std::vector<double>(n_bins, 0.0));
+    //   size_t bin_start = 0;
+
+    //   for (size_t region = 0; region < region_sizes.size(); ++region) {
+    //       int region_len = region_sizes[region];
+    //       if (region_len <= 0) {
+    //           std::cerr << "[WARN] region " << region << " has non-positive length" << std::endl;
+    //           continue;
+    //       }
+
+    //       // Compute per-cell normalized region means
+    //       std::vector<double> m(n_cells, 0.0);
+    //       for (int cell = 0; cell < n_cells; ++cell) {
+    //           double sum_norm = 0.0;
+    //           for (int k = 0; k < region_len; ++k) {
+    //               double raw = d_bins[cell][bin_start + k];
+    //               sum_norm += raw / size_factor[cell];
+    //           }
+    //           m[cell] = sum_norm / std::max(1, region_len);
+    //       }
+
+    //       // Global region mean
+    //       double m_bar = 0.0;
+    //       for (int i = 0; i < n_cells; ++i) m_bar += m[i];
+    //       m_bar /= std::max(1, n_cells);
+
+    //       // Check for all-zero region
+    //       bool all_zero = std::all_of(m.begin(), m.end(), [](double x){ return x == 0.0; });
+    //       if (all_zero) {
+    //           std::cout << "[SMOOTH] Region " << region << " is all zeros, filling with 0" << std::endl;
+    //           for (int cell = 0; cell < n_cells; ++cell) {
+    //               for (int k = 0; k < region_len; ++k) {
+    //                   smoothed[cell][bin_start + k] = 0.0;
+    //               }
+    //           }
+    //           bin_start += region_len;
+    //           continue;
+    //       }
+
+    //       // Shrinkage weight
+    //       double w = (double)region_len / (region_len + 10.0);
+    //       if (w < 0.05) w = 0.05;
+    //       if (w > 0.95) w = 0.95;
+
+    //       // Apply shrinkage
+    //       for (int cell = 0; cell < n_cells; ++cell) {
+    //           double lambda_norm = w * m[cell] + (1.0 - w) * m_bar;
+    //           double lambda_final = lambda_norm * size_factor[cell];
+    //           for (int k = 0; k < region_len; ++k) {
+    //               smoothed[cell][bin_start + k] = lambda_final;
+    //           }
+    //       }
+
+    //       if (region % 10 == 0) {
+    //           std::cout << "[SMOOTH] Region " << region << " done (len=" 
+    //                     << region_len << ", m_bar=" << m_bar << ")" << std::endl;
+    //       }
+
+    //       bin_start += region_len;
+    //   }
+
+    //   // --- Step 4: write smoothed matrix
+    //   std::ofstream smoothed_file("./" + f_name_posfix + "_smoothed.csv");
+    //   for (const auto &row : smoothed) {
+    //       for (size_t j = 0; j < row.size(); ++j) {
+    //           smoothed_file << row[j];
+    //           if (j < row.size() - 1)
+    //               smoothed_file << ",";
+    //       }
+    //       smoothed_file << "\n";
+    //   }
+    //   smoothed_file.close();
+
+    //   std::cout << "[SMOOTH] Finished. Smoothed matrix written to: ./" 
+    //             << f_name_posfix << "_smoothed.csv" << std::endl;
+    // }
+
+    // Write winner matrix
+    std::ofstream winner_file("./" + f_name_posfix + "_smoothed_win.csv");
+    for (const auto& row : lambda_mat_win) {
+        for (size_t j = 0; j < row.size(); ++j) {
+            winner_file << row[j];
+            if (j < row.size() - 1) winner_file << ",";
+        }
+        winner_file << "\n";
+    }
+    winner_file.close();
+
+    // Write null matrix
+    std::ofstream null_file("./" + f_name_posfix + "_smoothed_segment.csv");
+    for (const auto& row : lambda_mat_null) {
+        for (size_t j = 0; j < row.size(); ++j) {
+            null_file << row[j];
+            if (j < row.size() - 1) null_file << ",";
+        }
+        null_file << "\n";
+    }
+    null_file.close();
+
+    // Write break matrix
+    std::ofstream break_file("./" + f_name_posfix + "_smoothed_break.csv");
+    for (const auto& row : lambda_mat_break) {
+        for (size_t j = 0; j < row.size(); ++j) {
+            break_file << row[j];
+            if (j < row.size() - 1) break_file << ",";
+        }
+        break_file << "\n";
+    }
+    break_file.close();
 
     std::cout << "Total number of breakpoints detected: " << all_max_ids.size() << std::endl;
 
     return EXIT_SUCCESS;
+  
 }
 
 

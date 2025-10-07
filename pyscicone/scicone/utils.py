@@ -5,6 +5,7 @@ from scipy.spatial.distance import pdist
 from copy import deepcopy
 from pybiomart import Server
 import subprocess
+from ete3 import Tree as EteTree
 
 def filter_bins(counts, thres=3):
     n_bins = counts.shape[1]
@@ -263,3 +264,76 @@ def get_region_gene_map(bin_size, chr_stops, region_stops, excluded_bins, filter
         region_gene_map[region] = gene_list
 
     return region_gene_map
+
+
+def convert_to_newick(tree_input):
+    """
+    Convert SCICoNE-style tree string or file to a valid Newick string.
+    If already Newick (starts with '(' and ends with ';'), return as is.
+    """
+    import os
+    
+    # If it's a file path, load it
+    if os.path.exists(tree_input):
+        with open(tree_input) as f:
+            tree_str = f.read()
+    else:
+        tree_str = str(tree_input)
+    
+    # Case 1: Already Newick
+    if tree_str.strip().startswith("(") and tree_str.strip().endswith(";"):
+        return tree_str.strip()
+    
+    # Case 2: SCICoNE-style node list
+    parent_map = {}
+    root = None
+    for line in tree_str.splitlines():
+        if line.startswith("node"):
+            parts = line.split()
+            node_id = parts[1].strip(":")
+            parent_field = parts[2]  # p_id:...
+            parent_id = parent_field.split(":")[1].strip(",")
+            if parent_id != "NULL":
+                parent_map[node_id] = parent_id
+            else:
+                root = node_id
+
+    if root is None:
+        raise ValueError("Could not find root node in tree_str")
+
+    # Build adjacency list
+    children = {}
+    for child, parent in parent_map.items():
+        children.setdefault(parent, []).append(child)
+
+    # Recursive Newick builder
+    def build_newick(node):
+        if node not in children:
+            return node
+        else:
+            return "(" + ",".join(build_newick(c) for c in children[node]) + ")" + node
+
+    return build_newick(root) + ";"
+
+
+def compare_trees(true_txt, inferred_tree):
+    """
+    Compare simulated tree (.txt) vs inferred tree object.
+    Both are converted to Newick before comparison.
+    """
+    # Convert simulated tree file (.txt) to Newick
+    true_newick = convert_to_newick(true_txt)
+    with open("true_tree.nwk", "w") as f:
+        f.write(true_newick)
+
+    # Convert inferred SCICoNE tree_str to Newick
+    inferred_newick = convert_to_newick(inferred_tree.tree_str)
+    with open("inferred_tree_converted.nwk", "w") as f:
+        f.write(inferred_newick)
+
+    # Load with ete3
+    t1 = EteTree(true_newick)
+    t2 = EteTree(inferred_newick)
+
+    rf, max_rf, *_ = t1.robinson_foulds(t2)
+    return rf, rf/max_rf if max_rf > 0 else 0

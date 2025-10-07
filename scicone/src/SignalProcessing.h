@@ -39,6 +39,9 @@ public:
         int k_star,
         vector<int> &known_breakpoints,
         std::string mode,
+        std::vector<std::vector<double>> &lambda_mat_null,
+        std::vector<std::vector<double>> &lambda_mat_break,
+        std::vector<std::vector<double>> &lambda_mat_win,
         bool compute_lr = true,
         bool lr_only = false
     );
@@ -49,6 +52,9 @@ public:
         int k_star,
         vector<int> &known_breakpoints,
         std::string mode,
+        std::vector<std::vector<double>> &lambda_mat_null,
+        std::vector<std::vector<double>> &lambda_mat_break,
+        std::vector<std::vector<double>> &lambda_mat_win,
         vector<vector<double>> &lr_vec,
         bool compute_lr = true,
         bool lr_only = false
