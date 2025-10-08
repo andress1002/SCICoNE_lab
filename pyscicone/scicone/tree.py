@@ -476,38 +476,53 @@ class Tree(object):
                 str_merged_labels = 'Whole-genome duplication'
             else:
                 merged_labels = []
-
                 event_dict = self.node_dict[key]['region_event_dict']
+
                 if not event_dict:
                     region_str_merged_labels = ""
                 else:
-                    first_region = list(event_dict.keys())[0]
-                    previous_event = event_dict[first_region]
-                    last_region = first_region
-                    for i, region in enumerate(event_dict):
-                        if i > 0:
-                            event = event_dict[region]
+                    # --- Robust merging of consecutive CNV events ---
+                    merged_labels = []
+                    first_region = last_region = None
+                    previous_event = None
+
+                    if len(event_dict) == 1:
+                        # Single CNV event only
+                        region, event = list(event_dict.items())[0]
+                        merged_labels = [f"{int(event):+}R{region}"]
+                    else:
+                        for i, (region, event) in enumerate(event_dict.items()):
+                            if i == 0:
+                                previous_event = event
+                                first_region = last_region = region
+                                continue
+
                             if int(region) == int(last_region) + 1 and event == previous_event:
-                                last_region = region  # update the end
+                                # Consecutive region with same event
+                                last_region = region
                             else:
+                                # Finish previous run
                                 if first_region == last_region:
                                     merged_labels.append(f"{int(previous_event):+}R{first_region}")
                                 else:
                                     merged_labels.append(f"{int(previous_event):+}R{first_region}:{last_region}")
                                 first_region = last_region = region
-                        previous_event = event
-                    if first_region == last_region:
-                        merged_labels.append(f"{int(previous_event):+}R{first_region}")
-                    else:
-                        merged_labels.append(f"{int(previous_event):+}R{first_region}:{last_region}")
+                                previous_event = event
 
-                    # Add line breaks
+                        # Final region run
+                        if first_region is not None:
+                            if first_region == last_region:
+                                merged_labels.append(f"{int(previous_event):+}R{first_region}")
+                            else:
+                                merged_labels.append(f"{int(previous_event):+}R{first_region}:{last_region}")
+
+                    # Add line breaks every 5 events for better Graphviz readability
                     region_str_merged_labels = " ".join(
-                            f"{x}<br/>" if i % 5 == 0 and i > 0 else str(x)
-                            for i, x in enumerate(merged_labels)
-                        )
-                    if ''.join(list(region_str_merged_labels)[-len('<br/>'):]) == '<br/>':
-                        region_str_merged_labels = ''.join(list(region_str_merged_labels)[:-len('<br/>')])
+                        f"{x}<br/>" if i % 5 == 0 and i > 0 else str(x)
+                        for i, x in enumerate(merged_labels)
+                    )
+                    if region_str_merged_labels.endswith("<br/>"):
+                        region_str_merged_labels = region_str_merged_labels[:-len("<br/>")]
 
                 if gene_labels:
                     try:
@@ -566,17 +581,17 @@ class Tree(object):
 
                     except Exception as e:
                         str_merged_labels = region_str_merged_labels
-                elif mode == 'RNA':
-                    # For RNA, show gene names for each region
-                    gene_names = gene_list if gene_list is not None else []
-                    region_gene_map = {str(i): gene_names[i] for i in range(len(gene_names))}
-                    region_labels = []
-                    for region in event_dict:
-                        gene = region_gene_map.get(str(region), f"Gene{region}")
-                        region_labels.append(f"{int(event_dict[region]):+} {gene}")
-                    # Add line breaks
-                    str_merged_labels = "<br/>".join(region_labels)
-                else:
+                elif mode == "RNA":
+                    # Use gene names directly if available
+                    if gene_list is not None and len(gene_list) >= len(event_dict):
+                        region_labels = []
+                        for region, event in event_dict.items():
+                            gene_name = gene_list[int(region)] if int(region) < len(gene_list) else f"Gene{region}"
+                            region_labels.append(f"{int(event):+} {gene_name}")
+                        str_merged_labels = "<br/>".join(region_labels)
+                    else:
+                        # Fallback: just show region indices
+                        str_merged_labels = region_str_merged_labels
                     str_merged_labels = region_str_merged_labels
 
             # Add node label at the top
