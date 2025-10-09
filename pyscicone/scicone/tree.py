@@ -440,30 +440,59 @@ class Tree(object):
                         if gene != "":
                             self.node_dict[node]['gene_event_dict'][gene] = self.node_dict[node]['region_event_dict'][region]
 
-    def set_graphviz_str(self, root_label='Neutral', node_sizes=True, node_labels=True, color="#E6E6FA", event_fontsize=14, nodesize_fontsize=14,
-                     nodelabel_fontsize=14, gene_labels=False, gene_list=None, tumor_type=None, mode='DNA'):
-        if gene_labels is True and gene_list is None:
-            # Load COSMIC gene list
+    def set_graphviz_str(self, root_label='Neutral', node_sizes=True, node_labels=True, color="#E6E6FA",
+                         event_fontsize=14, nodesize_fontsize=14, nodelabel_fontsize=14,
+                         gene_labels=False, gene_list=None, tumor_type=None, mode='DNA',
+                         rna_gene_ids=None):
+        """
+        RNA mode:
+          - rna_gene_ids: list of gene IDs aligned to the ORIGINAL (bin) columns.
+          - For each region with an event, all genes whose indices fall inside that region
+            (according to region_sizes) are listed.
+          - If tumor_type provided, COSMIC cancer_gene_census.csv is filtered (case-insensitive whole-word).
+        """
+        import re
+
+        df = None
+        if gene_labels and (gene_list is None or tumor_type is not None):
             bpath = os.path.join(os.path.dirname(__file__), 'data')
-            df = pd.read_csv(os.path.join(bpath, 'cancer_gene_census.csv'))
-            gene_list = df['Gene Symbol'].tolist()
-            if tumor_type is not None:
-                gene_list = df.loc[np.where(np.array([tumor_type in val for val in df['Tumour Types(Somatic)'].values.astype(str)]))[0], 'Gene Symbol'].tolist()
+            cosmic_path = os.path.join(bpath, 'cancer_gene_census.csv')
+            if os.path.exists(cosmic_path):
+                df = pd.read_csv(cosmic_path)
+            else:
+                df = None
+
+        if gene_labels and gene_list is None and mode != 'RNA' and df is not None:
+            gene_list = df['Gene Symbol'].astype(str).tolist()
+
+        allowed_set = None
+        if tumor_type is not None and df is not None:
+            col = df['Tumour Types(Somatic)'].astype(str).str.lower()
+            pattern = r'\b' + re.escape(tumor_type.lower()) + r'\b'
+            mask = col.str.contains(pattern, na=False)
+            allowed_set = set(df.loc[mask, 'Gene Symbol'].astype(str))
+            if gene_list is not None and mode != 'RNA':
+                gene_list = [g for g in gene_list if g in allowed_set]
 
         if node_sizes:
-            nodes, counts = np.unique(self.outputs['cell_node_ids'][:,-1], return_counts=True)
-            node_sizes = dict()
-            for i, node in enumerate(nodes):
-                node_sizes[str(int(node))] = counts[i]
+            nodes, counts = np.unique(self.outputs['cell_node_ids'][:, -1], return_counts=True)
+            node_sizes = {str(int(n)): counts[i] for i, n in enumerate(nodes)}
         else:
             node_sizes = None
 
-        graphviz_header = [
-                    "digraph {",
-                    f'node [style=filled,color="{color}",fontsize={event_fontsize},margin=0,shape=oval]'
-                    f'edge [arrowhead=none, color="{color}"]',
-                ]
+        # Precompute region start indices (bin indices) to map regions -> genes
+        region_sizes = self.outputs.get('region_sizes', np.array([])).astype(int)
+        if region_sizes.size:
+            region_starts = np.zeros(region_sizes.size, dtype=int)
+            region_starts[1:] = np.cumsum(region_sizes[:-1])
+        else:
+            region_starts = np.array([])
 
+        graphviz_header = [
+            "digraph {",
+            f'node [style=filled,color="{color}",fontsize={event_fontsize},margin=0,shape=oval]',
+            f'edge [arrowhead=none, color="{color}"]',
+        ]
         graphviz_labels = []
         graphviz_links = []
 
@@ -475,174 +504,152 @@ class Tree(object):
             elif node_id == '-100':
                 str_merged_labels = 'Whole-genome duplication'
             else:
-                merged_labels = []
                 event_dict = self.node_dict[key]['region_event_dict']
-
+                # Region (DNA style) fallback
                 if not event_dict:
                     region_str_merged_labels = ""
                 else:
-                    # --- Robust merging of consecutive CNV events ---
-                    merged_labels = []
+                    merged_labels_tmp = []
                     first_region = last_region = None
                     previous_event = None
-
-                    if len(event_dict) == 1:
-                        # Single CNV event only
-                        region, event = list(event_dict.items())[0]
-                        merged_labels = [f"{int(event):+}R{region}"]
+                    items = list(event_dict.items())
+                    if len(items) == 1:
+                        r, ev = items[0]
+                        merged_labels_tmp = [f"{int(ev):+}R{r}"]
                     else:
-                        for i, (region, event) in enumerate(event_dict.items()):
+                        for i,(r, ev) in enumerate(items):
                             if i == 0:
-                                previous_event = event
-                                first_region = last_region = region
+                                previous_event = ev
+                                first_region = last_region = r
                                 continue
-
-                            if int(region) == int(last_region) + 1 and event == previous_event:
-                                # Consecutive region with same event
-                                last_region = region
+                            if int(r) == int(last_region) + 1 and ev == previous_event:
+                                last_region = r
                             else:
-                                # Finish previous run
                                 if first_region == last_region:
-                                    merged_labels.append(f"{int(previous_event):+}R{first_region}")
+                                    merged_labels_tmp.append(f"{int(previous_event):+}R{first_region}")
                                 else:
-                                    merged_labels.append(f"{int(previous_event):+}R{first_region}:{last_region}")
-                                first_region = last_region = region
-                                previous_event = event
-
-                        # Final region run
+                                    merged_labels_tmp.append(f"{int(previous_event):+}R{first_region}:{last_region}")
+                                first_region = last_region = r
+                                previous_event = ev
                         if first_region is not None:
                             if first_region == last_region:
-                                merged_labels.append(f"{int(previous_event):+}R{first_region}")
+                                merged_labels_tmp.append(f"{int(previous_event):+}R{first_region}")
                             else:
-                                merged_labels.append(f"{int(previous_event):+}R{first_region}:{last_region}")
-
-                    # Add line breaks every 5 events for better Graphviz readability
+                                merged_labels_tmp.append(f"{int(previous_event):+}R{first_region}:{last_region}")
                     region_str_merged_labels = " ".join(
                         f"{x}<br/>" if i % 5 == 0 and i > 0 else str(x)
-                        for i, x in enumerate(merged_labels)
+                        for i, x in enumerate(merged_labels_tmp)
                     )
                     if region_str_merged_labels.endswith("<br/>"):
-                        region_str_merged_labels = region_str_merged_labels[:-len("<br/>")]
+                        region_str_merged_labels = region_str_merged_labels[:-5]
 
-                if gene_labels:
+                if gene_labels and mode != 'RNA':
                     try:
-                        merged_labels = []
-                        event_dict = self.node_dict[key]['gene_event_dict']
-
-                        # Get all events
-                        unique_events = np.unique(np.array(list(self.node_dict[key]['region_event_dict'].values())))
-                        sorted_unique_events = np.sort(unique_events.astype(int))[::-1]
-
-                        for event in sorted_unique_events:
-                            if event > 0:
-                                color = 'red'
-                            else:
-                                color = 'blue'
-
-                            # Get all genes with this event
+                        merged_gene_blocks = []
+                        event_dict_gene = self.node_dict[key].get('gene_event_dict', {})
+                        unique_events = np.unique(np.array(list(event_dict.values())))
+                        for ev in np.sort(unique_events.astype(int))[::-1]:
+                            ev_color = 'red' if ev > 0 else 'blue'
                             genes = []
-                            for gene in event_dict:
-                                if int(event_dict[gene]) == event:
+                            for gene, gev in event_dict_gene.items():
+                                if int(gev) == ev:
                                     if gene_list is not None:
-                                        if np.any(gene == np.array(gene_list)):
-                                            genes.append(gene)
+                                        if gene in gene_list:
+                                            if allowed_set is None or gene in allowed_set:
+                                                genes.append(gene)
                                     else:
-                                        genes.append(gene)
-
-                            # Sort alphabetically
+                                        if allowed_set is None or gene in allowed_set:
+                                            genes.append(gene)
                             genes.sort()
-
-                            # Add line breaks
-                            merged_genes = ", ".join(
-                                    f"{x}<br/>" if i % 5 == 0 and i > 0 else str(x)
-                                    for i, x in enumerate(genes)
+                            if genes:
+                                merged_genes = ", ".join(
+                                    f"{g}<br/>" if i % 5 == 0 and i > 0 else g
+                                    for i, g in enumerate(genes)
+                                ).replace('<br/>,', ',<br/>')
+                                if merged_genes.endswith('<br/>'):
+                                    merged_genes = merged_genes[:-5]
+                                merged_gene_blocks.append(
+                                    f'<font point-size="{event_fontsize}" color="{ev_color}">{ev:+}</font>: {merged_genes}<br/><br/>'
                                 )
-                            merged_genes = merged_genes.replace('<br/>,',',<br/>')
-
-                            if ''.join(list(merged_genes)[-len('<br/>'):]) == '<br/>':
-                                merged_genes = ''.join(list(merged_genes)[:-len('<br/>')])
-
-                            event_str = ''
-                            if len(genes) != 0:
-                                event_str = f'<font point-size="{event_fontsize}" color="{color}">{event:+}</font>: ' + merged_genes + '<br/><br/>'
-                                merged_labels.append(event_str)
-
-                        str_merged_labels = ''.join(merged_labels)
-                        if ''.join(list(str_merged_labels)[-len('<br/><br/>'):]) == '<br/><br/>':
-                            str_merged_labels = ''.join(list(str_merged_labels)[:-len('<br/><br/>')])
-
-                        # Count amplified and deleted regions
-                        number_of_amps = np.sum(['+' in s for s in list(region_str_merged_labels)])
-                        number_of_dels = np.sum(['-' in s for s in list(region_str_merged_labels)])
-                        if len(merged_labels) == 0:
-                            str_merged_labels = f'<font point-size="{event_fontsize}">({number_of_amps}+, {number_of_dels}-)</font>'
-                        else:
-                            str_merged_labels = f'<font point-size="{event_fontsize}">({number_of_amps}+, {number_of_dels}-)</font>' + '<br/><br/>' + str_merged_labels
-
-                    except Exception as e:
+                        str_merged_labels = ''.join(merged_gene_blocks)
+                        if str_merged_labels.endswith('<br/><br/>'):
+                            str_merged_labels = str_merged_labels[:-10]
+                        # Prefix with counts
+                        number_of_amps = sum(['+' in s for s in list(region_str_merged_labels)])
+                        number_of_dels = sum(['-' in s for s in list(region_str_merged_labels)])
+                        prefix = f'<font point-size="{event_fontsize}">({number_of_amps}+, {number_of_dels}-)</font>'
+                        str_merged_labels = prefix + ('<br/><br/>' + str_merged_labels if merged_gene_blocks else '')
+                    except Exception:
                         str_merged_labels = region_str_merged_labels
-                elif mode == "RNA":
-                    # Use gene names directly if available
-                    if gene_list is not None and len(gene_list) >= len(event_dict):
-                        region_labels = []
-                        for region, event in event_dict.items():
-                            gene_name = gene_list[int(region)] if int(region) < len(gene_list) else f"Gene{region}"
-                            region_labels.append(f"{int(event):+} {gene_name}")
-                        str_merged_labels = "<br/>".join(region_labels)
-                    else:
-                        # Fallback: just show region indices
-                        str_merged_labels = region_str_merged_labels
+
+                elif mode == 'RNA' and gene_labels:
+                    gene_source = rna_gene_ids if rna_gene_ids is not None else gene_list
+                    rna_blocks = []
+                    # For each event region gather ALL genes in its bin span
+                    for region_str, ev in event_dict.items():
+                        r = int(region_str)
+                        if r < 0 or r >= len(region_sizes):
+                            continue
+                        start = region_starts[r]
+                        end = start + region_sizes[r]
+                        genes_in_region = []
+                        if gene_source is not None:
+                            # Bound check
+                            end_clamped = min(end, len(gene_source))
+                            start_clamped = min(start, end_clamped)
+                            genes_in_region = list(map(str, gene_source[start_clamped:end_clamped]))
+                        # Filter by tumor type if allowed_set present
+                        if allowed_set is not None:
+                            genes_in_region = [g for g in genes_in_region if g in allowed_set]
+                        if not genes_in_region:
+                            continue
+                        ev_color = 'red' if int(ev) > 0 else 'blue'
+                        genes_in_region.sort()
+                        # Wrap every 5 genes
+                        gene_pieces = []
+                        for i, g in enumerate(genes_in_region):
+                            seg = g
+                            if i % 5 == 0 and i > 0:
+                                seg = "<br/>" + seg
+                            gene_pieces.append(seg)
+                        genes_joined = ", ".join(gene_pieces).replace('<br/>,', ',<br/>')
+                        rna_blocks.append(
+                            f'<font point-size="{event_fontsize}" color="{ev_color}">{int(ev):+}</font>: {genes_joined}'
+                        )
+                    str_merged_labels = "<br/><br/>".join(rna_blocks) if rna_blocks else ""
+
+                else:
                     str_merged_labels = region_str_merged_labels
 
-            # Add node label at the top
-            if node_labels:
-                if self.node_dict[node_id]['label'] != "":
-                    try:
-                        labcolor = LABEL_COLORS_DICT[self.node_dict[node_id]["label"]]
-                    except KeyError:
-                        labcolor = LABEL_COLORS_DICT_NUM[self.node_dict[node_id]["label"]]
-                    node_label = (
-                        f'<font point-size="{nodelabel_fontsize}" color="{labcolor}"><b>'
-                        + str(self.node_dict[node_id]['label'])
-                        + "</b></font>"
-                    )
-                    str_merged_labels = node_label + "<br/><br/>" + str_merged_labels
-
-            # Add node size
-            if node_sizes is not None:
+            if node_labels and self.node_dict[node_id]['label'] != "":
                 try:
-                    node_size = node_sizes[node_id]
+                    labcolor = LABEL_COLORS_DICT[self.node_dict[node_id]["label"]]
                 except KeyError:
-                    node_size = 0
-                str_merged_labels = str_merged_labels + "<br/><br/>"
-                str_merged_labels = (
-                    str_merged_labels
-                    + f'<font point-size="{nodesize_fontsize}">'
-                    + str(int(node_size))
-                    + " cell"
-                )
-                if int(node_size) > 1 or int(node_size) == 0:
-                    str_merged_labels = str_merged_labels + "s"
-                str_merged_labels = str_merged_labels + "</font>"
+                    labcolor = LABEL_COLORS_DICT_NUM[self.node_dict[node_id]["label"]]
+                node_label_html = f'<font point-size="{nodelabel_fontsize}" color="{labcolor}"><b>{self.node_dict[node_id]["label"]}</b></font>'
+                str_merged_labels = node_label_html + "<br/><br/>" + str_merged_labels
 
+            if node_sizes is not None:
+                size_val = node_sizes.get(node_id, 0)
+                str_merged_labels += "<br/><br/>" + f'<font point-size="{nodesize_fontsize}">{int(size_val)} cell' \
+                                     + ("s" if int(size_val) != 1 else "") + "</font>"
 
-            graphviz_labels.append(
-                f"{node_id}[label=<{str_merged_labels}>]"
-            )  # use < > to allow HTML
+            graphviz_labels.append(f"{node_id}[label=<{str_merged_labels}>]")
             if p_id != 'NULL':
                 graphviz_links.append(f"{p_id} -> {node_id}")
 
         self.graphviz_str = '\n'.join(graphviz_header + graphviz_labels + graphviz_links + ["}"])
 
-    def plot_tree(self, root_label='Neutral', node_sizes=True, node_labels=True, color="#E6E6FA", event_fontsize=14, nodesize_fontsize=14, nodelabel_fontsize=14,
-              gene_labels=False, gene_list=None, tumor_type=None, mode='DNA'):
-        self.set_graphviz_str(root_label=root_label, node_sizes=node_sizes, node_labels=node_labels, color=color,
-                          event_fontsize=event_fontsize, nodesize_fontsize=nodesize_fontsize,
-                          nodelabel_fontsize=nodelabel_fontsize,
-                          gene_labels=gene_labels, gene_list=gene_list, tumor_type=tumor_type, mode=mode)
-        s = Source(self.graphviz_str)
-        return s
-
+    def plot_tree(self, root_label='Neutral', node_sizes=True, node_labels=True, color="#E6E6FA",
+                  event_fontsize=14, nodesize_fontsize=14, nodelabel_fontsize=14,
+                  gene_labels=False, gene_list=None, tumor_type=None, mode='DNA',
+                  rna_gene_ids=None):
+        self.set_graphviz_str(root_label=root_label, node_sizes=node_sizes, node_labels=node_labels,
+                              color=color, event_fontsize=event_fontsize, nodesize_fontsize=nodesize_fontsize,
+                              nodelabel_fontsize=nodelabel_fontsize, gene_labels=gene_labels,
+                              gene_list=gene_list, tumor_type=tumor_type, mode=mode,
+                              rna_gene_ids=rna_gene_ids)
+        return Source(self.graphviz_str)
 
     def adjust_to_wgd(self, threshold=0.98):
         # if data is None and self.data is not None:
@@ -762,6 +769,38 @@ class Tree(object):
             self.node_dict[node]['n_bins'] = n_bins
 
     def count_node_bins(self, node_id):
+        n_bins = 0
+        for region in self.node_dict[node_id]['region_event_dict']:
+            n_bins += self.outputs['region_sizes'][int(region)]
+        return n_bins
+
+    def get_distance(self, id1, id2, distance='n_nodes'):
+        path = self.path_between_nodes(id1, id2)
+
+        dist = 0
+        if distance == 'n_nodes':
+            dist = len(path)
+        elif distance == 'events':
+            for i, node in enumerate(path):
+                if i <= len(path) - 2:
+                    dist += np.sum(np.abs(self.node_dict[node]['cnv'] - self.node_dict[path[i+1]]['cnv']))
+        else:
+            for node in path:
+                dist += self.node_dict[node][distance]
+
+        return dist
+
+    def get_pairwise_cell_distances(self, distance='n_nodes'):
+        n_cells = len(self.outputs['cell_node_ids'])
+        mat = np.zeros((n_cells, n_cells))
+
+        for i in range(1, n_cells):
+            id1 = self.outputs['cell_node_ids'][i, 1]
+            for j in range(i):
+                id2 = self.outputs['cell_node_ids'][j, 1]
+                mat[i][j] = self.get_distance(str(int(id1)), str(int(id2)), distance=distance)
+
+        return mat
         n_bins = 0
         for region in self.node_dict[node_id]['region_event_dict']:
             n_bins += self.outputs['region_sizes'][int(region)]
