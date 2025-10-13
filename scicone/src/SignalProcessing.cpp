@@ -346,10 +346,15 @@
                 lambda_break_file << "\n";
             }
         }
-    }
-        else {
-            std::cout << "Skipping LR computation" << std::endl;
-        }
+       }
+       else {
+           std::cout << "Skipping LR computation" << std::endl;
+       }
+
+      if (lr_only) {
+          std::vector<double> sp_vec_dummy;
+          return sp_vec_dummy;
+      }
 
         if (verbosity > 0)
         {
@@ -375,10 +380,11 @@
         for (size_t i = 0; i < n_breakpoints; ++i) // compute sigma matrix
             sigma[i] = MathOp::combine_scores(lr_vec[i]);
 
+        // Original prior hyperparameter was mu=0.001 (not 0.05)
         vector<double> log_priors;
         log_priors.reserve(n_cells+1);
         for (size_t j = 0; j < n_cells+1; ++j)
-            log_priors.push_back(MathOp::breakpoint_log_prior(j, n_cells,0.05));
+            log_priors.push_back(MathOp::breakpoint_log_prior(j, n_cells, 0.001));
 
         vector<vector<double>> log_posterior(n_breakpoints,vector<double>(n_cells+1));
         for (size_t k = 0; k < n_breakpoints; ++k) {

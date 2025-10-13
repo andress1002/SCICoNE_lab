@@ -315,7 +315,7 @@ int main( int argc, char* argv[]) {
 
 
                   all_max_ids.push_back(max_idx);
-                  //std::cout << "Index of the maximum " << max_idx << " is added to all_max_ids." << std::endl;
+                  std::cout << "Index of the maximum " << max_idx << " is added to all_max_ids." << std::endl;
 
                   if (all_max_ids.size() >= breakpoints_limit)
                   {
@@ -394,7 +394,9 @@ int main( int argc, char* argv[]) {
                                                 d_bins[cell].begin() + bin_start + region_len);
 
                 // Updated: pass -1.0, -1.0 for prev_lambda, prev_pi to use empirical fallback
-                auto [lambda, pi] = MathOp::fit_zinb_parameters(region_bins, nu, -1.0, -1.0);
+                auto result = MathOp::fit_zinb_parameters(region_bins, nu, -1.0, -1.0);
+                double lambda = result.first;
+                double pi = result.second;
                 // We use only lambda (mean), pi is ignored
                 for (int k = 0; k < region_len; ++k)
                     smoothed[cell][bin_start + k] = lambda;

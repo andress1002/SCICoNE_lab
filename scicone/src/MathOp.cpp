@@ -6,6 +6,7 @@
 #include "Utils.h"
 #include "Lgamma.h"
 #include <nlopt.hpp>
+#include <stdexcept>
 
 template<class T>
 double MathOp::vec_avg(const vector<T> &v) {
@@ -298,11 +299,13 @@ LRResult MathOp::likelihood_ratio(
                 }
             }
         }
+        std::cout << "Breakpoint detection completed in mode " << mode << std::endl;
         return result;
-    }
 
-    // RNA mode with ZINB
-    double nu = estimate_dispersion_zinb(mat);
+    //RNA mode with ZINB model
+    
+    } else if (mode == "RNA") {
+        double nu = estimate_dispersion_zinb(mat);
     std::cout << "[RNA] ZINB dispersion estimation: nu=" << nu << std::endl;
 
     size_t n_bins = mat[0].size();
@@ -367,7 +370,6 @@ LRResult MathOp::likelihood_ratio(
                 prev_lambda_all = lambda_all;
                 prev_pi_segment = pi_segment;
 
-                
 
                 result.lr_vec[i][j] = 2 * (ll_break - ll_segment);
                 result.lambda_mat_null[j][i] = lambda_all;
@@ -376,8 +378,11 @@ LRResult MathOp::likelihood_ratio(
             }
         }
     }
-
+    std::cout << "Breakpoint detection completed in mode " << mode << std::endl;
     return result;
+    } else {
+        throw std::invalid_argument("Unknown mode: " + mode);
+    }
 }
 
 
