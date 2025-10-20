@@ -12,6 +12,9 @@ import pandas as pd
 import phenograph
 from scipy.cluster.hierarchy import linkage
 from collections import Counter
+import random
+from anytree import Node, RenderTree
+
 
 class SCICoNE(object):
     """
@@ -630,3 +633,96 @@ class SCICoNE(object):
             return self.best_cluster_tree
         elif full:
             return self.best_full_tree
+
+    def simulate_rna_data(
+        self,  # ADD THIS!
+        n_cells=200,
+        n_nodes=5,
+        n_bins=1000,
+        n_regions=40,
+        nu=0.7,                   # Overdispersion
+        base_pi=0.96,             # Zero-inflation / dropout
+        ploidy=2,
+        max_regions_per_node=2,
+        frac_high_expr=0.05,      # Fraction of highly expressed genes
+        mixture_high_sigma=1.5,   # SD for highly expressed group
+        mixture_low_sigma=0.5,    # SD for lowly expressed group
+        cell_lib_mean=9.5,        # log-library size mean
+        cell_lib_sigma=1.0,       # log-library size sigma
+        tumour_frac=0.7,          # fraction of tumour cells
+        postfix="rna_sim",
+        seed=123
+    ):
+        """
+        Simulate realistic scRNA-seq–like data for SCICoNE benchmarking.
+
+        Combines Gamma–Poisson noise, dropout, heterogeneous expression,
+        and tumour evolution along a random CNV tree.
+        """
+
+        np.random.seed(seed)
+        random.seed(seed)
+        os.makedirs("./simulations", exist_ok=True)
+
+        # --- 1. Build random evolutionary tree (as anytree)
+        root = Node("0", cn_state=np.ones(n_regions) * ploidy)
+        nodes = [root]
+        for i in range(1, n_nodes):
+            parent = random.choice(nodes)
+            child = Node(str(i), parent=parent, cn_state=parent.cn_state.copy())
+            # apply CNVs to up to max_regions_per_node regions
+            n_changes = np.random.randint(1, max_regions_per_node + 1)
+            affected = np.random.choice(n_regions, n_changes, replace=False)
+            for r in affected:
+                delta = np.random.choice([-1, 1])
+                child.cn_state[r] = np.clip(child.cn_state[r] + delta, 0.5, 5)
+            nodes.append(child)
+
+        # --- 2. Define region sizes (sum = n_bins)
+        raw_sizes = np.random.exponential(scale=1.0, size=n_regions)
+        region_sizes = np.round(n_bins * raw_sizes / raw_sizes.sum()).astype(int)
+        region_sizes[-1] += n_bins - region_sizes.sum()  # fix rounding
+
+        # --- 3. Assign tumour vs normal cells
+        n_tumour = int(n_cells * tumour_frac)
+        n_normal = n_cells - n_tumour
+        tumour_nodes = [n for n in nodes if n.is_leaf]
+        tumour_assignments = np.random.choice(tumour_nodes, n_tumour)
+        normal_assignments = [root] * n_normal
+        cell_nodes = np.concatenate([tumour_assignments, normal_assignments])
+
+        # --- 4. Expression baseline (mixture of low/high)
+        high_mask = np.random.rand(n_bins) < frac_high_expr
+        expr_baseline = np.ones(n_bins)
+        expr_baseline[high_mask] *= np.exp(np.random.normal(0, mixture_high_sigma, high_mask.sum()))
+        expr_baseline[~high_mask] *= np.exp(np.random.normal(0, mixture_low_sigma, (~high_mask).sum()))
+
+        # --- 5. Generate counts per cell
+        d_mat = np.zeros((n_cells, n_bins))
+        for i, node in enumerate(cell_nodes):
+            # library size variation per cell
+            lib_size = np.exp(np.random.normal(cell_lib_mean, cell_lib_sigma))
+            # copy number profile -> per-bin scaling
+            cn_profile = np.repeat(node.cn_state, region_sizes)
+            mu = expr_baseline * cn_profile
+            mu = mu / mu.sum() * lib_size
+            # Negative binomial / ZINB noise
+            p = nu / (nu + mu)
+            counts = np.random.negative_binomial(nu, p)
+            # dropout
+            dropout_mask = np.random.rand(n_bins) < base_pi
+            counts[dropout_mask] = 0
+            d_mat[i, :] = counts
+
+        # --- 6. Output files
+        tree_file = f"./simulations/tree_{postfix}.txt"
+        with open(tree_file, "w") as f:
+            for pre, _, node in RenderTree(root):
+                f.write(f"{pre}{node.name}: CNV={node.cn_state.tolist()}\n")
+
+        return {
+            "d_mat": d_mat,
+            "region_sizes": region_sizes,
+            "tree_file": tree_file,
+            "ground_truth": {"cell_nodes": [n.name for n in cell_nodes]},
+        }
