@@ -203,16 +203,18 @@ LRResult MathOp::likelihood_ratio(
         double nu = pow(global_mean, 2) / global_moment_2;
         std::cout << "[DNA] Method of moments estimated nu=" << nu << std::endl;
 
-        size_t n_bins = mat[0].size(); // the last breakpoint
-        size_t n_regions = known_breakpoints.size() - 1; // must include first and last bin
+        size_t n_bins = mat[0].size();
+        size_t n_regions = known_breakpoints.size() - 1;
         size_t n_cells = mat.size();
 
         LRResult result;
         result.lr_vec = std::vector<std::vector<double>>(n_bins, std::vector<double>(n_cells, 0.0));
-        // empty since not used for DNA
-        result.lambda_mat_null = {};
-        result.lambda_mat_break = {};
-        result.lambda_mat_win = {};
+        
+        // Initialize empty matrices for DNA mode (same dimensions but won't be populated)
+        // This prevents segfaults when Python tries to access them
+        result.lambda_mat_null = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
+        result.lambda_mat_break = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
+        result.lambda_mat_win = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
 
         #pragma omp parallel for
         for (size_t j = 0; j < n_cells; ++j) {
@@ -221,7 +223,6 @@ LRResult MathOp::likelihood_ratio(
                     int start = i - window_size;
                     int end = i + window_size;
 
-                    // end cannot be equal to n_bins because cellranger DNA is puts 0 to the end
                     if (start < 0 || end >= static_cast<int>(n_bins)) {
                         continue;
                     }
@@ -230,61 +231,52 @@ LRResult MathOp::likelihood_ratio(
                     vector<double> rbins = vector<double>(mat[j].begin() + i, mat[j].begin() + end);
                     vector<double> all_bins = vector<double>(mat[j].begin() + start, mat[j].begin() + end);
 
-                    size_t n_bins = all_bins.size();
+                    size_t n_bins_local = all_bins.size();
 
-                    vector<double> bin_positions(n_bins);
-                    for (size_t l = 0; l < n_bins; ++l) {
-                        bin_positions[l] = l+1; // 1 indexed
+                    vector<double> bin_positions(n_bins_local);
+                    for (size_t l = 0; l < n_bins_local; ++l) {
+                        bin_positions[l] = l+1;
                     }
 
-                    // 1. Likelihood of null model, where mean of all bins in segment follows a linear model.
-                    //   The mean across the bins in the window can change according to a linear model,
-                    //   which includes the case where all the bins have the same min (if the slope is zero)
-                    vector<double> lambdas_segment(n_bins);
+                    vector<double> lambdas_segment(n_bins_local);
                     vector<double> regression_parameters = compute_linear_regression_parameters(all_bins, window_size, nu);
                     double alpha = regression_parameters[0];
                     double beta = regression_parameters[1];
 
-                    for (size_t k = 0; k < n_bins; ++k)
-                    {
-                        lambdas_segment[k] = alpha + beta*bin_positions[k]; // prediction
+                    for (size_t k = 0; k < n_bins_local; ++k) {
+                        lambdas_segment[k] = alpha + beta*bin_positions[k];
                         if (lambdas_segment[k] <= 0)
                             lambdas_segment[k] = 0.0001;
                     }
 
                     double ll_segment = 0;
-                    for (size_t m = 0; m < n_bins; ++m) {
+                    for (size_t m = 0; m < n_bins_local; ++m) {
                         ll_segment += breakpoint_log_likelihood(vector<double>(all_bins.begin()+m, all_bins.begin()+m+1), lambdas_segment[m], nu);
                     }
 
-                    // 2. Likelihood of breakpoint model, where left and right bin segments have different means
-                    //    This means that if there is a breakpoint there is a step change between the two semi segments
                     double lambda_r = robust_mean(rbins);
                     double lambda_l = robust_mean(lbins);
                     double lambda_all = vec_avg(all_bins);
 
-                    // make sure lambda_all is between the left and right bounds
                     lambda_all = std::max(lambda_all, std::min(lambda_r, lambda_l));
                     lambda_all = std::min(lambda_all, std::max(lambda_r, lambda_l));
 
-                    // The distance between the left and right segments must be > lambda_all/4, so we update the
-                    // segments accordingly
                     if (lambda_r > lambda_l) {
-                    double gap = lambda_r - lambda_l;
-                    double gap_thres = lambda_all/4.0;
-                    double scaling = std::max(lambda_all/(4.0*gap), 1.0);
-                    if (gap < gap_thres) {
-                        lambda_r = lambda_all + scaling*(lambda_r-lambda_all);
-                        lambda_l = lambda_all - scaling*(lambda_all-lambda_l);
-                    }
+                        double gap = lambda_r - lambda_l;
+                        double gap_thres = lambda_all/4.0;
+                        double scaling = std::max(lambda_all/(4.0*gap), 1.0);
+                        if (gap < gap_thres) {
+                            lambda_r = lambda_all + scaling*(lambda_r-lambda_all);
+                            lambda_l = lambda_all - scaling*(lambda_all-lambda_l);
+                        }
                     } else if (lambda_r < lambda_l) {
-                    double gap = lambda_l - lambda_r;
-                    double gap_thres = lambda_all/4.0;
-                    double scaling = std::max(lambda_all/(4.0*gap), 1.0);
-                    if (gap < gap_thres) {
-                        lambda_l = lambda_all + scaling*(lambda_l-lambda_all);
-                        lambda_r = lambda_all - scaling*(lambda_all-lambda_r);
-                    }
+                        double gap = lambda_l - lambda_r;
+                        double gap_thres = lambda_all/4.0;
+                        double scaling = std::max(lambda_all/(4.0*gap), 1.0);
+                        if (gap < gap_thres) {
+                            lambda_l = lambda_all + scaling*(lambda_l-lambda_all);
+                            lambda_r = lambda_all - scaling*(lambda_all-lambda_r);
+                        }
                     }
                     if (lambda_r == 0)
                         lambda_r = 0.0001;
@@ -294,16 +286,15 @@ LRResult MathOp::likelihood_ratio(
                     double ll_break = breakpoint_log_likelihood(lbins, lambda_l, nu) +
                                     breakpoint_log_likelihood(rbins, lambda_r, nu);
 
-                    // 3. Output the difference between the two models' likelihoods
                     result.lr_vec[i][j] = 2*(ll_break - ll_segment);
+                    
+                    // Leave lambda matrices at 0.0 for DNA mode - they won't be used
                 }
             }
         }
         std::cout << "Breakpoint detection completed in mode " << mode << std::endl;
         return result;
 
-    //RNA mode with ZINB model
-    
     } else if (mode == "RNA") {
         double nu = estimate_dispersion_zinb(mat);
     std::cout << "[RNA] ZINB dispersion estimation: nu=" << nu << std::endl;
@@ -314,6 +305,7 @@ LRResult MathOp::likelihood_ratio(
 
     LRResult result;
     result.lr_vec = std::vector<std::vector<double>>(n_bins, std::vector<double>(n_cells, 0.0));
+    // Initialize lambda matrices ONLY for RNA mode
     result.lambda_mat_null = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
     result.lambda_mat_break = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
     result.lambda_mat_win = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
