@@ -1051,11 +1051,11 @@ double MathOp::huber_mean(vector<double> &z, double nu) {
 
     try{
         nlopt::result result = opt.optimize(x, minf);
-
         return x[0]; // optimized alpha, beta
     }
     catch(std::exception &e) {
         std::cout << "nlopt failed: " << e.what() << std::endl;
+        return vec_avg(z); // fallback to simple mean
     }
 }
 
@@ -1105,11 +1105,11 @@ vector<double> MathOp::compute_linear_regression_parameters(vector<double> &z, i
 
     try{
         nlopt::result result = opt.optimize(x, minf);
-
         return x; // optimized alpha, beta
     }
     catch(std::exception &e) {
         std::cout << "nlopt failed: " << e.what() << std::endl;
+        return std::vector<double>{lambda_all, 0.0}; // fallback to flat line
     }
 }
 
