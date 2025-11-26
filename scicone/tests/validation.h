@@ -66,13 +66,11 @@ void test_breakpoint_detection(const std::string& bp_detection_dir)
 
     // Add default arguments for mode and matrices
     std::string mode = "RNA";
-    std::vector<std::vector<double>> lambda_mat_null(n_cells, std::vector<double>(n_bins, 0.0));
-    std::vector<std::vector<double>> lambda_mat_break(n_cells, std::vector<double>(n_bins, 0.0));
     std::vector<std::vector<double>> lambda_mat_win(n_cells, std::vector<double>(n_bins, 0.0));
 
     vector<double> s_p = dsp.breakpoint_detection(
         d_bins, window_size, evidence_min_cells, input_breakpoints,
-        mode, lambda_mat_null, lambda_mat_break, lambda_mat_win
+        mode, lambda_mat_win
     );
 
     double sum_sp = std::accumulate(s_p.begin(), s_p.end(), 0.0);

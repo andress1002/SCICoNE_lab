@@ -209,11 +209,6 @@ LRResult MathOp::likelihood_ratio(
 
         LRResult result;
         result.lr_vec = std::vector<std::vector<double>>(n_bins, std::vector<double>(n_cells, 0.0));
-        
-        // Initialize empty matrices for DNA mode (same dimensions but won't be populated)
-        // This prevents segfaults when Python tries to access them
-        result.lambda_mat_null = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
-        result.lambda_mat_break = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
         result.lambda_mat_win = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
 
         #pragma omp parallel for
@@ -305,9 +300,6 @@ LRResult MathOp::likelihood_ratio(
 
     LRResult result;
     result.lr_vec = std::vector<std::vector<double>>(n_bins, std::vector<double>(n_cells, 0.0));
-    // Initialize lambda matrices ONLY for RNA mode
-    result.lambda_mat_null = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
-    result.lambda_mat_break = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
     result.lambda_mat_win = std::vector<std::vector<double>>(n_cells, std::vector<double>(n_bins, 0.0));
 
     #pragma omp parallel for
@@ -364,8 +356,6 @@ LRResult MathOp::likelihood_ratio(
 
 
                 result.lr_vec[i][j] = 2 * (ll_break - ll_segment);
-                result.lambda_mat_null[j][i] = lambda_all;
-                result.lambda_mat_break[j][i] = lambda_l;
                 result.lambda_mat_win[j][i] = (result.lr_vec[i][j] > 5.99) ? lambda_l : lambda_all;
             }
         }

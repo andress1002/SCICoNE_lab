@@ -443,10 +443,10 @@ class Tree(object):
     def set_graphviz_str(self, root_label='Neutral', node_sizes=True, node_labels=True, color="#E6E6FA",
                          event_fontsize=14, nodesize_fontsize=14, nodelabel_fontsize=14,
                          gene_labels=False, gene_list=None, tumor_type=None, mode='DNA',
-                         rna_gene_ids=None):
+                         adata=None):
         """
         RNA mode:
-          - rna_gene_ids: list of gene IDs aligned to the ORIGINAL (bin) columns.
+          - adata: AnnData object containing gene information in adata.var['gene_id']
           - For each region with an event, all genes whose indices fall inside that region
             (according to region_sizes) are listed.
           - If tumor_type provided, COSMIC cancer_gene_census.csv is filtered (case-insensitive whole-word).
@@ -583,7 +583,10 @@ class Tree(object):
                         str_merged_labels = region_str_merged_labels
 
                 elif mode == 'RNA' and gene_labels:
-                    gene_source = rna_gene_ids if rna_gene_ids is not None else gene_list
+                    # Extract gene IDs from adata for RNA mode
+                    if adata is not None and gene_list is None:
+                        gene_list = adata.var['gene_id'].astype(str).tolist()
+                    
                     rna_blocks = []
                     # For each event region gather ALL genes in its bin span
                     for region_str, ev in event_dict.items():
@@ -593,11 +596,11 @@ class Tree(object):
                         start = region_starts[r]
                         end = start + region_sizes[r]
                         genes_in_region = []
-                        if gene_source is not None:
+                        if gene_list is not None:
                             # Bound check
-                            end_clamped = min(end, len(gene_source))
+                            end_clamped = min(end, len(gene_list))
                             start_clamped = min(start, end_clamped)
-                            genes_in_region = list(map(str, gene_source[start_clamped:end_clamped]))
+                            genes_in_region = list(map(str, gene_list[start_clamped:end_clamped]))
                         # Filter by tumor type if allowed_set present
                         if allowed_set is not None:
                             genes_in_region = [g for g in genes_in_region if g in allowed_set]
@@ -643,12 +646,12 @@ class Tree(object):
     def plot_tree(self, root_label='Neutral', node_sizes=True, node_labels=True, color="#E6E6FA",
                   event_fontsize=14, nodesize_fontsize=14, nodelabel_fontsize=14,
                   gene_labels=False, gene_list=None, tumor_type=None, mode='DNA',
-                  rna_gene_ids=None):
+                  adata=None):
         self.set_graphviz_str(root_label=root_label, node_sizes=node_sizes, node_labels=node_labels,
                               color=color, event_fontsize=event_fontsize, nodesize_fontsize=nodesize_fontsize,
                               nodelabel_fontsize=nodelabel_fontsize, gene_labels=gene_labels,
                               gene_list=gene_list, tumor_type=tumor_type, mode=mode,
-                              rna_gene_ids=rna_gene_ids)
+                              adata=adata)
         return Source(self.graphviz_str)
 
     def adjust_to_wgd(self, threshold=0.98):

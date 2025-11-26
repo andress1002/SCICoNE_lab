@@ -277,8 +277,6 @@
         int k_star,
         vector<int> &known_breakpoints,
         std::string mode,
-        std::vector<std::vector<double>> &lambda_mat_null,
-        std::vector<std::vector<double>> &lambda_mat_break,
         std::vector<std::vector<double>> &lambda_mat_win,
         bool compute_lr,
         bool lr_only
@@ -286,7 +284,7 @@
         vector<vector<double>> lr_vec;
         return SignalProcessing::breakpoint_detection(
             mat, window_size, k_star, known_breakpoints,
-            mode, lambda_mat_null, lambda_mat_break, lambda_mat_win, lr_vec, compute_lr, lr_only
+            mode, lambda_mat_win, lr_vec, compute_lr, lr_only
         );
     }
 
@@ -297,8 +295,6 @@
         int k_star,
         vector<int> &known_breakpoints,
         std::string mode,
-        std::vector<std::vector<double>> &lambda_mat_null,
-        std::vector<std::vector<double>> &lambda_mat_break,
         std::vector<std::vector<double>> &lambda_mat_win,
         vector<vector<double>> &lr_vec,
         bool compute_lr,
@@ -323,27 +319,18 @@
         lr_vec = lr_result.lr_vec;
 
         if (mode == "RNA") {
-            lambda_mat_null = lr_result.lambda_mat_null;
-            lambda_mat_break = lr_result.lambda_mat_break;
             lambda_mat_win = lr_result.lambda_mat_win;
 
-            std::ofstream lambda_null_file("./" + f_name_posfix + "_lambda_mat_null.csv");
-            std::ofstream lambda_break_file("./" + f_name_posfix + "_lambda_mat_break.csv");
-            std::ofstream lambda_win_file("./" + f_name_posfix + "_lambda_mat_win.csv");
+            std::ofstream lambda_win_file("./" + f_name_posfix + "_smoothed.csv");
 
             for (size_t j = 0; j < n_cells; ++j) {
                 for (size_t i = 0; i < n_bins; ++i) {
-                    lambda_null_file << lambda_mat_null[j][i];
-                    lambda_break_file << lambda_mat_break[j][i];
                     lambda_win_file << lambda_mat_win[j][i];
                     if (i < n_bins - 1) {
-                        lambda_null_file << ",";
-                        lambda_break_file << ",";
                         lambda_win_file << ",";
                     }
                 }
-                lambda_null_file << "\n";
-                lambda_break_file << "\n";
+                lambda_win_file << "\n";
             }
         }
        }

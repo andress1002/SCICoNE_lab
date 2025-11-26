@@ -41,8 +41,6 @@ int main( int argc, char* argv[]) {
     string input_breakpoints_file;
     bool add_input_breakpoints = false;
     std::string mode = "DNA";
-    vector<vector<double>> lambda_mat_break;         // breakpoint model matrix
-    vector<vector<double>> lambda_mat_null;         // null model matrix
     vector<vector<double>> lambda_mat_win;         // winning model matrix
 
     cxxopts::Options options("Breakpoint detection executable", "detects the breakpoints in the genome across all cells.");
@@ -154,12 +152,12 @@ int main( int argc, char* argv[]) {
       if (compute_lr)
         s_p = dsp.breakpoint_detection(
             d_bins, window_size, evidence_min_cells, input_breakpoints,
-            mode, lambda_mat_null, lambda_mat_break, lambda_mat_win
+            mode, lambda_mat_win
         );
       else
         s_p = dsp.breakpoint_detection(
             d_bins, window_size, evidence_min_cells, input_breakpoints,
-            mode, lambda_mat_null, lambda_mat_break, lambda_mat_win, lr_vec, compute_lr
+            mode, lambda_mat_win, lr_vec, compute_lr
         );
       std::cout<<"Computed probabilities for all regions."<<std::endl;
     }
@@ -537,8 +535,8 @@ int main( int argc, char* argv[]) {
     //             << f_name_posfix << "_smoothed.csv" << std::endl;
     // }
 
-    // Write winner matrix
-    std::ofstream winner_file("./" + f_name_posfix + "_smoothed_win.csv");
+    // Write smoothed matrix
+    std::ofstream winner_file("./" + f_name_posfix + "_smoothed.csv");
     for (const auto& row : lambda_mat_win) {
         for (size_t j = 0; j < row.size(); ++j) {
             winner_file << row[j];
@@ -547,28 +545,6 @@ int main( int argc, char* argv[]) {
         winner_file << "\n";
     }
     winner_file.close();
-
-    // Write null matrix
-    std::ofstream null_file("./" + f_name_posfix + "_smoothed_segment.csv");
-    for (const auto& row : lambda_mat_null) {
-        for (size_t j = 0; j < row.size(); ++j) {
-            null_file << row[j];
-            if (j < row.size() - 1) null_file << ",";
-        }
-        null_file << "\n";
-    }
-    null_file.close();
-
-    // Write break matrix
-    std::ofstream break_file("./" + f_name_posfix + "_smoothed_break.csv");
-    for (const auto& row : lambda_mat_break) {
-        for (size_t j = 0; j < row.size(); ++j) {
-            break_file << row[j];
-            if (j < row.size() - 1) break_file << ",";
-        }
-        break_file << "\n";
-    }
-    break_file.close();
 
     std::cout << "Total number of breakpoints detected: " << all_max_ids.size() << std::endl;
 

@@ -33,8 +33,6 @@ typedef struct {
 
 struct LRResult {
     std::vector<std::vector<double>> lr_vec;          // Likelihood ratios (bins × cells)
-    std::vector<std::vector<double>> lambda_mat_null; // Null model λ per cell/bin
-    std::vector<std::vector<double>> lambda_mat_break;// Breakpoint model λ per cell/bin
     std::vector<std::vector<double>> lambda_mat_win;  // Winning model λ per cell/bin
 
     // Default constructor initializes empty matrices (for DNA mode compatibility)
